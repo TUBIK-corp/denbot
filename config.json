@@ -1,0 +1,11 @@
+{
+    "mistral_api_key": "",
+    "mistral_agent_id": "",
+    "message_memory": 100,
+    "typing_speed": 20,
+    "delay_before_online": [4, 10],
+    "delay_before_offline": [60, 120],
+    "tg_api_id": "",
+    "tg_api_hash": "",
+    "allowed_chats": []
+}
