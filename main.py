@@ -1,4 +1,5 @@
-import json, time, random, asyncio, logging
+import json, time, random, asyncio, logging, re
+from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
@@ -20,12 +21,14 @@ last_activity_time = 0
 is_online = False
 message_queue = asyncio.Queue()
 
-def allowed_chat(_, __, message):
-    return message.chat.id in config['allowed_chats']
+def chat_filter_func(_, __, message):
+    if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
+        return True
+    return filters.private and filters.text
 
-def get_response(message, name="unknown", ping=False):
+def get_response(message, name="unknown"):
     global messages
-    messages.append({"role": "user", "content": f"[user: {name}, ping: {ping}]: {message}"})
+    messages.append({"role": "user", "content": f"[{name}]: {message}"})
     if len(messages) > config['message_memory']: messages = messages[-config['message_memory']:]
 
     chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=messages)
@@ -56,28 +59,43 @@ async def simulate_online_status():
             logger.info("Статус: оффлайн")
         await asyncio.sleep(10)
 
-@app.on_message(filters.text & (filters.create(allowed_chat) | filters.private))
+def is_mentioned(message):
+    bot_names = config['bot_names']
+    name_match_threshold = config['name_match_threshold']
+    text = re.sub(r'[^\w\s]', '', message.text).lower().split()
+    for word in text:
+        for name in bot_names:
+            if SequenceMatcher(None, name, word).ratio() > name_match_threshold:
+                logger.info(f"Имя бота найдено по проценту сходства: {name} | Процент сходства: {SequenceMatcher(None, name, word).ratio() * 100:.2f}% | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+                return True
+    return False
+
+@app.on_message(filters.create(chat_filter_func))
 async def auto_reply(client, message):
     await message_queue.put([client, message])
-    logger.info(f"Добавлено в очередь: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-    
+
 async def process_queue():
-    global is_online, last_activity_time
+    global is_online, last_activity_time, messages
     while True:
         client, message = await message_queue.get()
         logger.info(f"Обработка сообщения: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-        if not is_online:
-            await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
-            await app.invoke(functions.account.UpdateStatus(offline=False))
-            is_online = True
-            logger.info("Статус: онлайн")
-        last_activity_time = time.time()
-        await client.read_chat_history(message.chat.id)
-        response = get_response(message=message.text, name=message.from_user.username, ping = (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE)
-        logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-        if response != "[mute]":
+        if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
+            if not is_online:
+                await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
+                await app.invoke(functions.account.UpdateStatus(offline=False))
+                is_online = True
+                logger.info("Статус: онлайн")
+            last_activity_time = time.time()
+            await client.read_chat_history(message.chat.id)
+            response = get_response(message=message.text, name=message.from_user.first_name)
+            logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
             await simulate_typing(client, message.chat.id, response)
             await message.reply(response)
+        else:
+            messages.append({"role": "user", "content": f"[{message.from_user.first_name}]: {message}"})
+            logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+            with open('messages.json', 'w', encoding='utf-8') as file:
+                json.dump(messages, file, indent=2)
         message_queue.task_done()
 
 async def main():
