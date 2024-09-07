@@ -71,24 +71,28 @@ async def auto_reply(client, message):
 async def process_queue():
     global is_online, last_activity_time, messages
     while True:
-        client, message = await message_queue.get()
-        logger.info(f"Обработка сообщения: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-        if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
-            if not is_online:
-                await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
-                await app.invoke(functions.account.UpdateStatus(offline=False))
-                is_online = True
-                logger.info("Статус: онлайн")
-            last_activity_time = time.time()
-            await client.read_chat_history(message.chat.id)
-            response = get_response(message=message.text, name=message.from_user.first_name)
-            logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-            await simulate_typing(client, message.chat.id, response)
-            await message.reply(response)
-        else:
-            messages.append({"role": "user", "content": f"[{message.from_user.first_name}]: {message}"})
-            logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-        message_queue.task_done()
+        try:
+            client, message = await message_queue.get()
+            logger.info(f"Обработка сообщения: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+            if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
+                if not is_online:
+                    await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
+                    await app.invoke(functions.account.UpdateStatus(offline=False))
+                    is_online = True
+                    logger.info("Статус: онлайн")
+                last_activity_time = time.time()
+                await client.read_chat_history(message.chat.id)
+                response = get_response(message=message.text, name=message.from_user.first_name)
+                logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+                await simulate_typing(client, message.chat.id, response)
+                await message.reply(response)
+            else:
+                messages.append({"role": "user", "content": f"[{message.from_user.first_name}]: {message}"})
+                logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+        except Exception as e:
+            logger.error(f"Ошибка при обработке сообщения: {e}")
+        finally:
+            message_queue.task_done()
 
 async def main():
     await app.start()
