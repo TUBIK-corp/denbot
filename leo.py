@@ -70,7 +70,7 @@ class LeoBot:
                 reaction = await self.get_reaction(rating)
                 await self.send_message(reaction)
                 if reaction == "💌 / 📹":
-                    response = self.mistral_client.agents.complete(agent_id=self.config['mistral_agent_id'], messages=[{"role": "user", "content": f"Ты листал бота для поиска знакомств и тебе очень понравилась эта анкета: {profile_message.text}, придумай что написать ей, пиши влюбчиво и очень возбуждённо, но веди себя максимально серьёзно и умно!"}])
+                    response = self.mistral_client.agents.complete(agent_id=self.config['mistral_agent_id'], messages=[{"role": "user", "content": f"Ты листал бота для поиска знакомств и тебе очень понравилась эта анкета: {profile_message.text}, придумай что написать ей, пиши влюбчиво и очень возбуждённо, но веди себя максимально серьёзно и умно! Максимум 300 символов в ответе."}])
                     await self.send_message(clean_response(response.choices[0].message.content.strip()))
 
             except Exception as e:
