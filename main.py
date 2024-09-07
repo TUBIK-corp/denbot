@@ -11,8 +11,7 @@ logger = logging.getLogger(__name__)
 with open('config.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
 
-with open('messages.json', 'r', encoding='utf-8') as f:
-    messages = json.load(f)
+messages = [{}]
 
 client = Mistral(api_key=config['mistral_api_key'])
 app = Client("my_account", api_id=config['tg_api_id'], api_hash=config['tg_api_hash'])
@@ -30,14 +29,9 @@ def get_response(message, name="unknown"):
     global messages
     messages.append({"role": "user", "content": f"[{name}]: {message}"})
     if len(messages) > config['message_memory']: messages = messages[-config['message_memory']:]
-
     chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=messages)
-
     assistant_response = chat_response.choices[0].message.content
     messages.append({"role": "assistant", "content": assistant_response})
-    
-    with open('messages.json', 'w', encoding='utf-8') as file:
-        json.dump(messages, file, indent=2)
     return assistant_response
 
 async def simulate_typing(client, chat_id, text):
@@ -94,8 +88,6 @@ async def process_queue():
         else:
             messages.append({"role": "user", "content": f"[{message.from_user.first_name}]: {message}"})
             logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
-            with open('messages.json', 'w', encoding='utf-8') as file:
-                json.dump(messages, file, indent=2)
         message_queue.task_done()
 
 async def main():
