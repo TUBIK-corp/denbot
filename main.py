@@ -17,6 +17,7 @@ app = Client("my_account", api_id=config['tg_api_id'], api_hash=config['tg_api_h
 last_activity_time = 0
 is_online = False
 message_queue = asyncio.Queue()
+me = None
 
 def chat_filter_func(_, __, message):
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
@@ -27,9 +28,10 @@ async def get_chat_history(chat_id, limit):
     messages = []
     async for message in app.get_chat_history(chat_id, limit=limit):
         if message.text:
-            name = message.from_user.first_name if message.from_user else "Unknown"
+            first_name = message.from_user.first_name if message.from_user else "Unknown"
+            last_name = message.from_user.last_name if message.from_user else ""
             role = "assistant" if message.from_user and message.from_user.is_self else "user"
-            messages.append({"role": role, "content": f"[{name}]: {message.text}"})
+            messages.append({"role": role, "content": f"[{first_name} {last_name}]: {message.text}"})
     return list(reversed(messages))
 
 async def get_response(message, chat_id, name="unknown"):
@@ -58,6 +60,11 @@ async def simulate_online_status():
             is_online = False
             logger.info("Статус: оффлайн")
         await asyncio.sleep(10)
+
+def clean_response(response):
+    pattern = rf'^\[{me.first_name} {me.last_name}\]:\s*'
+    response = re.sub(pattern, '', response, flags=re.IGNORECASE)
+    return response.strip()
 
 def is_mentioned(message):
     bot_names = config['bot_names']
@@ -88,7 +95,7 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 await client.read_chat_history(message.chat.id)
-                response = await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
+                response = clean_response(await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}"))
                 logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
                 await simulate_typing(client, message.chat.id, response)
                 await message.reply(response)
@@ -100,7 +107,9 @@ async def process_queue():
             message_queue.task_done()
 
 async def main():
+    global me
     await app.start()
+    me = await app.get_me()
     await app.invoke(functions.account.UpdateStatus(offline=True))
     asyncio.create_task(process_queue())
     await simulate_online_status()
