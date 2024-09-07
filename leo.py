@@ -6,7 +6,7 @@ from mistralai import Mistral
 LEO_BOT_USERNAME = "leomatchbot"
 
 def clean_response(response):
-    pattern = rf'^\[{"Пупс"}\]:\s*'
+    pattern = rf'^\[{"Пупс ДенВот"}\]:\s*'
     response = re.sub(pattern, '', response, flags=re.IGNORECASE)
     return response.strip()
 
