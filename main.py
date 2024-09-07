@@ -1,4 +1,4 @@
-import json, time, random, asyncio, logging, re
+import json, time, random, asyncio, logging, re, leo
 from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
@@ -20,6 +20,10 @@ message_queue = asyncio.Queue()
 me = None
 
 def chat_filter_func(_, __, message):
+    if message.from_user and message.from_user.username == "leomatchbot":
+        return False
+    if message.text and message.text.strip().lower() in ['/leo_start', '/leo_stop']:
+        return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
     return filters.private and filters.text
@@ -112,6 +116,7 @@ async def main():
     me = await app.get_me()
     await app.invoke(functions.account.UpdateStatus(offline=True))
     asyncio.create_task(process_queue())
+    leo.setup(app, client, config)
     await simulate_online_status()
 
 if __name__ == "__main__":
