@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 with open('config.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
 
-messages = []
-
 client = Mistral(api_key=config['mistral_api_key'])
 app = Client("my_account", api_id=config['tg_api_id'], api_hash=config['tg_api_hash'])
 
@@ -25,13 +23,21 @@ def chat_filter_func(_, __, message):
         return True
     return filters.private and filters.text
 
-def get_response(message, name="unknown"):
-    global messages
-    messages.append({"role": "user", "content": f"[{name}]: {message}"})
-    if len(messages) > config['message_memory']: messages = messages[-config['message_memory']:]
-    chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=messages)
+async def get_chat_history(chat_id, limit):
+    messages = []
+    async for message in app.get_chat_history(chat_id, limit=limit):
+        if message.text:
+            name = message.from_user.first_name if message.from_user else "Unknown"
+            role = "assistant" if message.from_user and message.from_user.is_self else "user"
+            messages.append({"role": role, "content": f"[{name}]: {message.text}"})
+    return list(reversed(messages))
+
+async def get_response(message, chat_id, name="unknown"):
+    chat_history = await get_chat_history(chat_id, config['message_memory'])
+    chat_history.append({"role": "user", "content": f"[{name}]: {message}"})
+    
+    chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
     assistant_response = chat_response.choices[0].message.content
-    messages.append({"role": "assistant", "content": assistant_response})
     return assistant_response
 
 async def simulate_typing(client, chat_id, text):
@@ -69,11 +75,11 @@ async def auto_reply(client, message):
     await message_queue.put([client, message])
 
 async def process_queue():
-    global is_online, last_activity_time, messages
+    global is_online, last_activity_time
     while True:
         try:
             client, message = await message_queue.get()
-            logger.info(f"Обработка сообщения: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+            logger.info(f"Обработка сообщения: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
             if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
@@ -82,13 +88,12 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 await client.read_chat_history(message.chat.id)
-                response = get_response(message=message.text, name=message.from_user.first_name)
-                logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+                response = await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
+                logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
                 await simulate_typing(client, message.chat.id, response)
                 await message.reply(response)
             else:
-                messages.append({"role": "user", "content": f"[{message.from_user.first_name}]: {message}"})
-                logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+                logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
