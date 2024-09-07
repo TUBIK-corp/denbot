@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 with open('config.json', 'r', encoding='utf-8') as f:
     config = json.load(f)
 
-messages = [{}]
+messages = []
 
 client = Mistral(api_key=config['mistral_api_key'])
 app = Client("my_account", api_id=config['tg_api_id'], api_hash=config['tg_api_hash'])
