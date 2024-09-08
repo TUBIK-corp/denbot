@@ -28,18 +28,17 @@ def chat_filter_func(_, __, message):
         return True
     return filters.private and filters.text
 
-async def get_chat_history(chat_id, limit):
+async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
-    async for message in app.get_chat_history(chat_id, limit=limit):
+    async for message in app.iter_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text:
-            first_name = message.from_user.first_name if message.from_user else "Unknown"
-            last_name = message.from_user.last_name if message.from_user else "Unknown"
-            role = "assistant" if message.from_user and message.from_user.is_self else "user"
-            messages.append({"role": role, "content": f"[{first_name} {last_name}]: {message.text}"})
-    return list(reversed(messages))
+            name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
+            role = "assistant" if message.from_user.is_self else "user"
+            messages.append({"role": role, "content": f"[{name.strip()}]: {message.text}"})
+    return messages
 
-async def get_response(message, chat_id, name="unknown"):
-    chat_history = await get_chat_history(chat_id, config['message_memory'])
+async def get_response(message, chat_id, message_id, name="unknown"):
+    chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     chat_history.append({"role": "user", "content": f"[{name}]: {message}"})
     
     chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
@@ -94,7 +93,7 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 await client.read_chat_history(message.chat.id)
-                response = await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
+                response = await get_response(message=message.text, chat_id=message.chat.id, message_id=message.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
                 for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
                     logger.info(f"Ответ отправлен: {part} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
                     await simulate_typing(client, message.chat.id, part)
