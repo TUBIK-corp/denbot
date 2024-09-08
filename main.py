@@ -33,7 +33,7 @@ async def get_chat_history(chat_id, limit):
     async for message in app.get_chat_history(chat_id, limit=limit):
         if message.text:
             first_name = message.from_user.first_name if message.from_user else "Unknown"
-            last_name = message.from_user.last_name if message.from_user else ""
+            last_name = message.from_user.last_name if message.from_user else "Unknown"
             role = "assistant" if message.from_user and message.from_user.is_self else "user"
             messages.append({"role": role, "content": f"[{first_name} {last_name}]: {message.text}"})
     return list(reversed(messages))
@@ -65,11 +65,6 @@ async def simulate_online_status():
             logger.info("Статус: оффлайн")
         await asyncio.sleep(10)
 
-def clean_response(response):
-    pattern = rf'^\[{me.first_name} {me.last_name}\]:\s*'
-    response = re.sub(pattern, '', response, flags=re.IGNORECASE)
-    return response.strip()
-
 def is_mentioned(message):
     bot_names = config['bot_names']
     name_match_threshold = config['name_match_threshold']
@@ -99,10 +94,11 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 await client.read_chat_history(message.chat.id)
-                response = clean_response(await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}"))
-                logger.info(f"Ответ отправлен: {response} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
-                await simulate_typing(client, message.chat.id, response)
-                await message.reply(response)
+                response = await get_response(message=message.text, chat_id=message.chat.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
+                for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
+                    logger.info(f"Ответ отправлен: {part} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+                    await simulate_typing(client, message.chat.id, part)
+                    await message.reply(part)
             else:
                 logger.info(f"Сообщение проигнорировано: {message.text} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
         except Exception as e:
