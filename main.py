@@ -30,7 +30,7 @@ def chat_filter_func(_, __, message):
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
-    async for message in app.iter_history(chat_id, limit=limit, offset_id=current_message_id):
+    async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text:
             name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
             role = "assistant" if message.from_user.is_self else "user"
