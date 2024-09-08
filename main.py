@@ -20,7 +20,7 @@ message_queue = asyncio.Queue()
 me = None
 
 def chat_filter_func(_, __, message):
-    if message.from_user and message.from_user.username == "leomatchbot":
+    if message.from_user and message.from_user.username != "leomatchbot":
         return False
     if message.text and message.text.strip().lower() in ['/leo_start', '/leo_stop']:
         return False
