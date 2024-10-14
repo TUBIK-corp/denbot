@@ -30,12 +30,24 @@ def chat_filter_func(_, __, message):
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
+    current_role = None
+    current_content = []
+    
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text:
             name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
             role = "assistant" if message.from_user.is_self else "user"
-            messages.append({"role": role, "content": f"[{name.strip()}]: {message.text}"})
-    return messages
+            
+            if role != current_role:
+                if current_role:
+                    messages.append({"role": current_role, "content": "\n".join(current_content)})
+                current_role = role
+                current_content = []
+            
+            current_content.append(f"[{name.strip()}]: {message.text}")
+    if current_role:
+        messages.append({"role": current_role, "content": "\n".join(current_content)})
+    return messages[::-1]
 
 async def get_response(message, chat_id, message_id, name="unknown"):
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
