@@ -37,6 +37,7 @@ async def get_chat_history(chat_id, limit, current_message_id):
         if message.text:
             name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
             role = "assistant" if message.from_user.is_self else "user"
+            mentioned = is_mentioned(message)
             
             if role != current_role:
                 if current_role:
@@ -44,9 +45,10 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 current_role = role
                 current_content = []
             
+            message_text = f"[{name.strip()}]: {'[Mentioned] ' if mentioned else ''}{message.text}"
             current_content.append(f"[{name.strip()}]: {message.text}")
     if current_role:
-        messages.append({"role": current_role, "content": "\n".join(current_content)})
+        messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
     return messages[::-1]
 
 async def get_response(message, chat_id, message_id, name="unknown"):
