@@ -46,7 +46,7 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 current_content = []
             
             message_text = f"[{name.strip()}]: {'[Mentioned] ' if mentioned else ''}{message.text}"
-            current_content.append(f"[{name.strip()}]: {message.text}")
+            current_content.append(message_text)
     if current_role:
         messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
     return messages[::-1]
