@@ -53,12 +53,12 @@ async def get_chat_history(chat_id, limit, current_message_id):
             
             message_text = f"[{name.strip()}]: {'[Mentioned] ' if mentioned else ''}"
             if message.text:
-                message_text += message.text
+                message_text += str(message.text)
             elif message.sticker:
-                message_text += '{'+message.sticker.emoji+' sticker}'
+                message_text += '{'+str(message.sticker.emoji)+' sticker}'
             elif message.animation:
                 gif_info = extract_gif_info(message.animation)
-                message_text += '{'+gif_info+' gif}'
+                message_text += '{'+str(gif_info)+' gif}'
             
             current_content.append(message_text)
     if current_role:
@@ -75,6 +75,7 @@ def extract_gif_info(animation):
         return "Unknown GIF"
 
 async def get_response(message, chat_id, message_id, name="unknown"):
+    asyncio.sleep(0.5)
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     
     if isinstance(message, str):
@@ -82,16 +83,16 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     elif message.text:
         content = message.text
     elif message.sticker:
-        content = '{'+message.sticker.emoji+' sticker}'
+        content = '{'+str(message.sticker.emoji)+' sticker}'
     elif message.animation:
         gif_info = extract_gif_info(message.animation)
-        content = '{'+gif_info+' gif}'
+        content = '{'+str(gif_info)+' gif}'
     else:
         content = "Unsupported message type"
     
     chat_history.append({"role": "user", "content": f"[{name}]: {content}"})
     
-    chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
+    chat_response = await client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
     assistant_response = chat_response.choices[0].message.content
     return assistant_response
 
