@@ -92,7 +92,7 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     
     chat_history.append({"role": "user", "content": f"[{name}]: {content}"})
     
-    chat_response = await client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
+    chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
     assistant_response = chat_response.choices[0].message.content
     return assistant_response
 
