@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
-from pyrogram.raw import functions
+from pyrogram.raw import functions, types
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -140,17 +140,35 @@ async def send_random_sticker(client, chat_id, emoji):
         matching_stickers = []
         for sticker_set_name in config['sticker_sets']:
             try:
-                sticker_set = await client.get_sticker_set(sticker_set_name)
-                matching_stickers.extend([
-                    sticker for sticker in sticker_set.stickers
-                    if sticker.emoji == emoji
-                ])
+                sticker_set = await client.invoke(functions.messages.GetStickerSet(
+                    stickerset=types.InputStickerSetShortName(short_name=sticker_set_name),
+                    hash=0
+                ))
+                
+                for document in sticker_set.documents:
+                    for attribute in document.attributes:
+                        if isinstance(attribute, types.DocumentAttributeSticker):
+                            if attribute.alt == emoji:
+                                matching_stickers.append(document)
+                                break
+
             except Exception as e:
                 logger.error(f"Ошибка при получении набора стикеров {sticker_set_name}: {e}")
 
         if matching_stickers:
             sticker = random.choice(matching_stickers)
-            await client.send_sticker(chat_id, sticker.file_id)
+            await client.invoke(functions.messages.SendMedia(
+                peer=await client.resolve_peer(chat_id),
+                media=types.InputMediaDocument(
+                    id=types.InputDocument(
+                        id=sticker.id,
+                        access_hash=sticker.access_hash,
+                        file_reference=sticker.file_reference
+                    )
+                ),
+                message="",
+                random_id=random.randint(1, 2147483647)
+            ))
             return True
         else:
             logger.warning(f"Не найдено подходящих стикеров для эмодзи: {emoji}")
