@@ -225,8 +225,8 @@ async def process_queue():
                     logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
                     await simulate_typing(client, message.chat.id, part)
                     
-                    gif_match = re.search(r'\{["']?(.*?)["']?[\s_]?gif\}', part, re.IGNORECASE)
-                    sticker_match = re.search(r'\{["']?(.*?)["']?[\s_]?sticker\}', part, re.IGNORECASE)
+                    gif_match = re.search(r'\{(.*?)[\s_]?gif\}', part, re.IGNORECASE)
+                    sticker_match = re.search(r'\{(.*?)[\s_]?sticker\}', part, re.IGNORECASE)
 
                     if gif_match:
                         query = gif_match.group(1).strip()
