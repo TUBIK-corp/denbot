@@ -125,6 +125,25 @@ def is_mentioned(message):
                 return True
     return False
 
+async def get_all_stickers(client):
+    try:
+        all_stickers = await client.invoke(functions.messages.GetAllStickers(hash=0))
+        sticker_sets = []
+
+        for set in all_stickers.sets:
+            full_set = await client.invoke(functions.messages.GetStickerSet(
+                stickerset=types.InputStickerSetID(
+                    id=set.id, access_hash=set.access_hash
+                ),
+                hash=0
+            ))
+            sticker_sets.append(full_set)
+
+        return sticker_sets
+    except Exception as e:
+        logger.error(f"Ошибка при получении всех стикеров: {e}")
+        return []
+
 async def send_gif(client, chat_id, query):
     try:
         results = await client.get_inline_bot_results("gif", query)
@@ -137,23 +156,17 @@ async def send_gif(client, chat_id, query):
 
 async def send_random_sticker(client, chat_id, emoji):
     try:
-        matching_stickers = []
-        for sticker_set_name in config['sticker_sets']:
-            try:
-                sticker_set = await client.invoke(functions.messages.GetStickerSet(
-                    stickerset=types.InputStickerSetShortName(short_name=sticker_set_name),
-                    hash=0
-                ))
-                
-                for document in sticker_set.documents:
-                    for attribute in document.attributes:
-                        if isinstance(attribute, types.DocumentAttributeSticker):
-                            if attribute.alt == emoji:
-                                matching_stickers.append(document)
-                                break
+        if not hasattr(client, 'all_sticker_sets'):
+            client.all_sticker_sets = await get_all_stickers(client)
 
-            except Exception as e:
-                logger.error(f"Ошибка при получении набора стикеров {sticker_set_name}: {e}")
+        matching_stickers = []
+        for sticker_set in client.all_sticker_sets:
+            for document in sticker_set.documents:
+                for attribute in document.attributes:
+                    if isinstance(attribute, types.DocumentAttributeSticker):
+                        if attribute.alt == emoji:
+                            matching_stickers.append(document)
+                            break
 
         if matching_stickers:
             sticker = random.choice(matching_stickers)
