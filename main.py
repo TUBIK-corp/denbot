@@ -201,7 +201,11 @@ async def process_queue():
             client, message = await message_queue.get()
             content_type = "text" if message.text else "sticker" if message.sticker else "GIF" if message.animation else "unknown"
             content = message.text or (message.sticker.emoji if message.sticker else (extract_gif_info(message.animation) if message.animation else "unknown"))
-            logger.info(f"Обработка сообщения: {content_type}: {content} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+            chat_title = message.chat.title or "Unknown Chat"
+            user_first_name = message.from_user.first_name or "Unknown"
+            user_last_name = message.from_user.last_name or ""
+            user_username = message.from_user.username or "Unknown"
+            logger.info(f"Обработка сообщения: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
             
             if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
                 if not is_online:
@@ -211,9 +215,9 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 await client.read_chat_history(message.chat.id)
-                response = await get_response(message=message, chat_id=message.chat.id, message_id=message.id, name=f"{message.from_user.first_name} {message.from_user.last_name}")
+                response = await get_response(message=message, chat_id=message.chat.id, message_id=message.id, name=f"{user_first_name} {user_last_name}".strip())
                 for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
-                    logger.info(f"Ответ отправлен: {part} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+                    logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
                     await simulate_typing(client, message.chat.id, part)
                     
                     gif_match = re.search(r'\{(.*?) gif\}', part)
@@ -233,7 +237,7 @@ async def process_queue():
                     if part:
                         await message.reply(part)
             else:
-                logger.info(f"Сообщение проигнорировано: {content_type}: {content} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+                logger.info(f"Сообщение проигнорировано: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
