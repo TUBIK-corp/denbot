@@ -9,9 +9,7 @@ from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
-from pyrogram.raw import functions, types
-from pyrogram.types import Message, InlineQuery
-from urllib.parse import urlparse, parse_qs
+from pyrogram.raw import functions
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -142,33 +140,23 @@ async def send_random_sticker(client, chat_id, emoji):
         matching_stickers = []
         for sticker_set_name in config['sticker_sets']:
             try:
-                sticker_set = await client.invoke(functions.messages.GetStickerSet(
-                    stickerset=types.InputStickerSetShortName(short_name=sticker_set_name),
-                    hash=0
-                ))
-                
-                for sticker in sticker_set.documents:
-                    sticker_emoji = None
-                    for attr in sticker.attributes:
-                        if isinstance(attr, types.DocumentAttributeSticker):
-                            sticker_emoji = attr.alt
-                            break
-                    
-                    if sticker_emoji == emoji:
-                        matching_stickers.append(sticker)
-
+                sticker_set = await client.get_sticker_set(sticker_set_name)
+                matching_stickers.extend([
+                    sticker for sticker in sticker_set.stickers
+                    if sticker.emoji == emoji
+                ])
             except Exception as e:
-                logger.error(f"Error getting sticker set {sticker_set_name}: {e}")
+                logger.error(f"Ошибка при получении набора стикеров {sticker_set_name}: {e}")
 
         if matching_stickers:
             sticker = random.choice(matching_stickers)
-            await client.send_document(chat_id, sticker.id, file_ref=sticker.file_reference)
+            await client.send_sticker(chat_id, sticker.file_id)
             return True
         else:
-            logger.warning(f"No matching stickers found for emoji: {emoji}")
+            logger.warning(f"Не найдено подходящих стикеров для эмодзи: {emoji}")
             return False
     except Exception as e:
-        logger.error(f"Error sending sticker: {e}")
+        logger.error(f"Ошибка при отправке стикера: {e}")
         return False
 
 @app.on_message(filters.create(chat_filter_func))
