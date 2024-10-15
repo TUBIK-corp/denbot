@@ -57,10 +57,10 @@ async def get_chat_history(chat_id, limit, current_message_id):
             if message.text:
                 message_text += message.text
             elif message.sticker:
-                message_text += f"[Sticker: {message.sticker.emoji}]"
+                message_text += '{'+message.sticker.emoji+' sticker}'
             elif message.animation:
                 gif_info = extract_gif_info(message.animation)
-                message_text += f"[GIF: {gif_info}]"
+                message_text += '{'+gif_info+' gif}'
             
             current_content.append(message_text)
     if current_role:
