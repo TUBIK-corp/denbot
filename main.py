@@ -10,7 +10,8 @@ from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
 from pyrogram.raw import functions
-from pyrogram.types import Message, InlineQuery, InlineQueryResultGif
+from pyrogram.types import Message, InlineQuery
+from urllib.parse import urlparse, parse_qs
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ def chat_filter_func(_, __, message):
         return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
-    return filters.private and (filters.text | filters.sticker)
+    return filters.private and (filters.text | filters.sticker | filters.animation)
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
@@ -41,7 +42,7 @@ async def get_chat_history(chat_id, limit, current_message_id):
     current_content = []
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
-        if message.text or message.sticker:
+        if message.text or message.sticker or message.animation:
             name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
             role = "assistant" if message.from_user.is_self else "user"
             mentioned = is_mentioned(message)
@@ -57,11 +58,23 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 message_text += message.text
             elif message.sticker:
                 message_text += f"[Sticker: {message.sticker.emoji}]"
+            elif message.animation:
+                gif_info = extract_gif_info(message.animation)
+                message_text += f"[GIF: {gif_info}]"
             
             current_content.append(message_text)
     if current_role:
         messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
+    logger.info(messages[::-1])
     return messages[::-1]
+
+def extract_gif_info(animation):
+    if animation.file_name:
+        return animation.file_name.split('.')[0]
+    elif animation.file_unique_id:
+        return animation.file_unique_id
+    else:
+        return "Unknown GIF"
 
 async def get_response(message, chat_id, message_id, name="unknown"):
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
@@ -71,7 +84,10 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     elif message.text:
         content = message.text
     elif message.sticker:
-        content = f"[Sticker: {message.sticker.emoji}]"
+        content = '{'+message.sticker.emoji+' sticker}'
+    elif message.animation:
+        gif_info = extract_gif_info(message.animation)
+        content = '{'+gif_info+' gif}'
     else:
         content = "Unsupported message type"
     
@@ -121,6 +137,23 @@ async def send_gif(client, chat_id, query):
         logger.error(f"Ошибка при отправке GIF: {e}")
     return False
 
+async def send_random_sticker(client, chat_id, emoji):
+    try:
+        all_sticker_sets = await client.get_sticker_sets()  
+        
+        matching_stickers = []
+        for sticker_set in all_sticker_sets:
+            matching_stickers.extend([sticker for sticker in sticker_set.stickers if sticker.emoji == emoji])
+        
+        if matching_stickers:
+            sticker = random.choice(matching_stickers)
+            await client.send_sticker(chat_id, sticker.file_id)
+            return True
+    except Exception as e:
+        logger.error(f"Ошибка при отправке стикера: {e}")
+    
+    return False
+
 @app.on_message(filters.create(chat_filter_func))
 async def auto_reply(client, message):
     await message_queue.put([client, message])
@@ -130,7 +163,10 @@ async def process_queue():
     while True:
         try:
             client, message = await message_queue.get()
-            logger.info(f"Обработка сообщения: {message.text or message.sticker.emoji} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+            content_type = "text" if message.text else "sticker" if message.sticker else "GIF" if message.animation else "unknown"
+            content = message.text or (message.sticker.emoji if message.sticker else (extract_gif_info(message.animation) if message.animation else "unknown"))
+            logger.info(f"Обработка сообщения: {content_type}: {content} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+            
             if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
@@ -145,16 +181,23 @@ async def process_queue():
                     await simulate_typing(client, message.chat.id, part)
                     
                     gif_match = re.search(r'\{(.*?) gif\}', part)
+                    sticker_match = re.search(r'\{(.*?) sticker\}', part)
+                    
                     if gif_match:
                         gif_query = gif_match.group(1)
                         gif_sent = await send_gif(client, message.chat.id, gif_query)
                         if gif_sent:
                             part = re.sub(r'\{.*? gif\}', '', part).strip()
+                    elif sticker_match:
+                        sticker_emoji = sticker_match.group(1)
+                        sticker_sent = await send_random_sticker(client, message.chat.id, sticker_emoji)
+                        if sticker_sent:
+                            part = re.sub(r'\{.*? sticker\}', '', part).strip()
                     
                     if part:
                         await message.reply(part)
             else:
-                logger.info(f"Сообщение проигнорировано: {message.text or message.sticker.emoji} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
+                logger.info(f"Сообщение проигнорировано: {content_type}: {content} | Чат: {message.chat.title} | Пользователь: {message.from_user.username}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
