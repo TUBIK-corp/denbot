@@ -139,12 +139,11 @@ async def send_gif(client, chat_id, query):
 
 async def send_random_sticker(client, chat_id, emoji):
     try:
-        all_sticker_sets = await client.get_sticker_sets()  
-        
         matching_stickers = []
-        for sticker_set in all_sticker_sets:
+        for sticker_set_name in config['sticker_sets']:
+            sticker_set = await client.get_sticker_set(sticker_set_name)
             matching_stickers.extend([sticker for sticker in sticker_set.stickers if sticker.emoji == emoji])
-        
+
         if matching_stickers:
             sticker = random.choice(matching_stickers)
             await client.send_sticker(chat_id, sticker.file_id)
