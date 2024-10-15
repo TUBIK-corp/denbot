@@ -147,16 +147,22 @@ async def send_random_sticker(client, chat_id, emoji):
                     hash=0
                 ))
                 
-                matching_stickers.extend([
-                    sticker for sticker in sticker_set.documents
-                    if any(attr.emoticon == emoji for attr in sticker.attributes if isinstance(attr, types.DocumentAttributeSticker))
-                ])
+                for sticker in sticker_set.documents:
+                    sticker_emoji = None
+                    for attr in sticker.attributes:
+                        if isinstance(attr, types.DocumentAttributeSticker):
+                            sticker_emoji = attr.alt
+                            break
+                    
+                    if sticker_emoji == emoji:
+                        matching_stickers.append(sticker)
+
             except Exception as e:
                 logger.error(f"Error getting sticker set {sticker_set_name}: {e}")
 
         if matching_stickers:
             sticker = random.choice(matching_stickers)
-            await client.send_document(chat_id, sticker.id, mime_type='application/x-tgsticker')
+            await client.send_document(chat_id, sticker.id, file_ref=sticker.file_reference)
             return True
         else:
             logger.warning(f"No matching stickers found for emoji: {emoji}")
