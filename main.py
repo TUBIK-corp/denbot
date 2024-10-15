@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
-from pyrogram.raw import functions
+from pyrogram.raw import functions, types
 from pyrogram.types import Message, InlineQuery
 from urllib.parse import urlparse, parse_qs
 
@@ -141,17 +141,29 @@ async def send_random_sticker(client, chat_id, emoji):
     try:
         matching_stickers = []
         for sticker_set_name in config['sticker_sets']:
-            sticker_set = await client.get_sticker_set(sticker_set_name)
-            matching_stickers.extend([sticker for sticker in sticker_set.stickers if sticker.emoji == emoji])
+            try:
+                sticker_set = await client.invoke(functions.messages.GetStickerSet(
+                    stickerset=types.InputStickerSetShortName(short_name=sticker_set_name),
+                    hash=0
+                ))
+                
+                matching_stickers.extend([
+                    sticker for sticker in sticker_set.documents
+                    if any(attr.emoticon == emoji for attr in sticker.attributes if isinstance(attr, types.DocumentAttributeSticker))
+                ])
+            except Exception as e:
+                logger.error(f"Error getting sticker set {sticker_set_name}: {e}")
 
         if matching_stickers:
             sticker = random.choice(matching_stickers)
-            await client.send_sticker(chat_id, sticker.file_id)
+            await client.send_document(chat_id, sticker.id, mime_type='application/x-tgsticker')
             return True
+        else:
+            logger.warning(f"No matching stickers found for emoji: {emoji}")
+            return False
     except Exception as e:
-        logger.error(f"Ошибка при отправке стикера: {e}")
-    
-    return False
+        logger.error(f"Error sending sticker: {e}")
+        return False
 
 @app.on_message(filters.create(chat_filter_func))
 async def auto_reply(client, message):
