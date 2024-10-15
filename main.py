@@ -5,6 +5,7 @@ import asyncio
 import logging
 import re
 import leo
+import emoji
 from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
@@ -24,6 +25,9 @@ last_activity_time = 0
 is_online = False
 message_queue = asyncio.Queue()
 me = None
+
+def contains_emoji(text):
+    return emoji.emoji_count(text) > 0
 
 def chat_filter_func(_, __, message):
     if message.from_user and message.from_user.username == "leomatchbot":
@@ -221,19 +225,23 @@ async def process_queue():
                     logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
                     await simulate_typing(client, message.chat.id, part)
                     
-                    gif_match = re.search(r'\{(.*?) gif\}', part)
-                    sticker_match = re.search(r'\{(.*?) sticker\}', part)
-                    
+                    gif_match = re.search(r'\{["']?(.*?)["']?[\s_]?gif\}', part, re.IGNORECASE)
+                    sticker_match = re.search(r'\{["']?(.*?)["']?[\s_]?sticker\}', part, re.IGNORECASE)
+
                     if gif_match:
-                        gif_query = gif_match.group(1)
-                        gif_sent = await send_gif(client, message.chat.id, gif_query)
-                        if gif_sent:
-                            part = re.sub(r'\{.*? gif\}', '', part).strip()
+                        query = gif_match.group(1).strip()
+                        if contains_emoji(query):
+                            await send_random_sticker(client, message.chat.id, query)
+                        else:
+                            await send_gif(client, message.chat.id, query)
+                        part = re.sub(r'\{.*?gif\}', '', part, flags=re.IGNORECASE).strip()
                     elif sticker_match:
-                        sticker_emoji = sticker_match.group(1)
-                        sticker_sent = await send_random_sticker(client, message.chat.id, sticker_emoji)
-                        if sticker_sent:
-                            part = re.sub(r'\{.*? sticker\}', '', part).strip()
+                        query = sticker_match.group(1).strip()
+                        if contains_emoji(query):
+                            await send_random_sticker(client, message.chat.id, query)
+                        else:
+                            await send_gif(client, message.chat.id, query)
+                        part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
                     
                     if part:
                         await message.reply(part)
