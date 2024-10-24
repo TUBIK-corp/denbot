@@ -11,6 +11,8 @@ from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
 from pyrogram.raw import functions, types
 
+random
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -160,7 +162,7 @@ async def send_gif(client, chat_id, query):
     try:
         results = await client.get_inline_bot_results("gif", query)
         if results.results:
-            await client.send_inline_bot_result(chat_id, results.query_id, results.results[0].id)
+            await client.send_inline_bot_result(chat_id, results.query_id, random.choice(results.results[:5]).id)
             return True
     except Exception as e:
         logger.error(f"Ошибка при отправке GIF: {e}")
