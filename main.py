@@ -228,6 +228,32 @@ async def process_queue():
                     is_online = True
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
+                
+                start_time = time.time()
+                user_typing = False
+                while time.time() - start_time < 5:
+                    try:
+                        chat_member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                        if hasattr(chat_member, 'status') and chat_member.status == 'typing':
+                            user_typing = True
+                            break
+                        await asyncio.sleep(0.1)
+                    except Exception as e:
+                        logger.error(f"Ошибка при проверке статуса печати: {e}")
+                        break
+                
+                if user_typing:
+                    typing_start = time.time()
+                    while time.time() - typing_start < 10:  # 10 seconds maximum waiting
+                        try:
+                            chat_member = await client.get_chat_member(message.chat.id, message.from_user.id)
+                            if not (hasattr(chat_member, 'status') and chat_member.status == 'typing'):
+                                break
+                            await asyncio.sleep(0.1)
+                        except Exception as e:
+                            logger.error(f"Ошибка при проверке статуса печати: {e}")
+                            break
+                
                 await client.read_chat_history(message.chat.id)
                 response = await get_response(message=message, chat_id=message.chat.id, message_id=message.id, name=f"{user_first_name} {user_last_name}".strip())
                 for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
