@@ -27,6 +27,9 @@ is_online = False
 message_queue = asyncio.Queue()
 me = None
 
+message_buffers = {} 
+last_message_time = {}
+
 def contains_emoji(text):
     emoji_pattern = re.compile("["
         u"\U0001F600-\U0001F64F"  # emoticons
@@ -213,15 +216,40 @@ async def process_queue():
     while True:
         try:
             client, message = await message_queue.get()
-            content_type = "text" if message.text else "sticker" if message.sticker else "GIF" if message.animation else "unknown"
-            content = message.text or (message.sticker.emoji if message.sticker else (extract_gif_info(message.animation) if message.animation else "unknown"))
-            chat_title = message.chat.title or "Unknown Chat"
-            user_first_name = message.from_user.first_name or "Unknown"
-            user_last_name = message.from_user.last_name or ""
-            user_username = message.from_user.username or "Unknown"
+            chat_id = message.chat.id
+            user_id = message.from_user.id
+            current_time = time.time()
+            
+            # Обновляем буфер сообщений для данного чата
+            buffer_key = f"{chat_id}_{user_id}"
+            if buffer_key not in message_buffers:
+                message_buffers[buffer_key] = []
+            message_buffers[buffer_key].append(message)
+            last_message_time[buffer_key] = current_time
+            
+            if len(message_buffers[buffer_key]) > 1:
+                continue
+                
+            await asyncio.sleep(5)  # Ждем 5 секунд
+
+            if current_time != last_message_time[buffer_key]:
+                continue
+                
+            # Берем последнее сообщение из буфера
+            last_message = message_buffers[buffer_key][-1]
+            # Очищаем буфер
+            message_buffers[buffer_key] = []
+            
+            content_type = "text" if last_message.text else "sticker" if last_message.sticker else "GIF" if last_message.animation else "unknown"
+            content = last_message.text or (last_message.sticker.emoji if last_message.sticker else (extract_gif_info(last_message.animation) if last_message.animation else "unknown"))
+            chat_title = last_message.chat.title or "Unknown Chat"
+            user_first_name = last_message.from_user.first_name or "Unknown"
+            user_last_name = last_message.from_user.last_name or ""
+            user_username = last_message.from_user.username or "Unknown"
+            
             logger.info(f"Обработка сообщения: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
             
-            if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
+            if (last_message.reply_to_message and last_message.reply_to_message.from_user.is_self) or last_message.chat.type == ChatType.PRIVATE or is_mentioned(last_message):
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
                     await app.invoke(functions.account.UpdateStatus(offline=False))
@@ -229,36 +257,17 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = time.time()
                 
-                start_time = time.time()
-                user_typing = False
-                while time.time() - start_time < 5:
-                    try:
-                        chat_member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                        if hasattr(chat_member, 'status') and chat_member.status == 'typing':
-                            user_typing = True
-                            break
-                        await asyncio.sleep(0.1)
-                    except Exception as e:
-                        logger.error(f"Ошибка при проверке статуса печати: {e}")
-                        break
+                await client.read_chat_history(last_message.chat.id)
+                response = await get_response(
+                    message=last_message,
+                    chat_id=last_message.chat.id,
+                    message_id=last_message.id,
+                    name=f"{user_first_name} {user_last_name}".strip()
+                )
                 
-                if user_typing:
-                    typing_start = time.time()
-                    while time.time() - typing_start < 10:  # 10 seconds maximum waiting
-                        try:
-                            chat_member = await client.get_chat_member(message.chat.id, message.from_user.id)
-                            if not (hasattr(chat_member, 'status') and chat_member.status == 'typing'):
-                                break
-                            await asyncio.sleep(0.1)
-                        except Exception as e:
-                            logger.error(f"Ошибка при проверке статуса печати: {e}")
-                            break
-                
-                await client.read_chat_history(message.chat.id)
-                response = await get_response(message=message, chat_id=message.chat.id, message_id=message.id, name=f"{user_first_name} {user_last_name}".strip())
                 for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
                     logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
-                    await simulate_typing(client, message.chat.id, part)
+                    await simulate_typing(client, last_message.chat.id, part)
                     
                     gif_match = re.search(r'\{(.*?)[\s_]?gif\}', part, re.IGNORECASE)
                     sticker_match = re.search(r'\{(.*?)[\s_]?sticker\}', part, re.IGNORECASE)
@@ -266,22 +275,23 @@ async def process_queue():
                     if gif_match:
                         query = gif_match.group(1).strip()
                         if contains_emoji(query):
-                            await send_random_sticker(client, message.chat.id, query)
+                            await send_random_sticker(client, last_message.chat.id, query)
                         else:
-                            await send_gif(client, message.chat.id, query)
+                            await send_gif(client, last_message.chat.id, query)
                         part = re.sub(r'\{.*?gif\}', '', part, flags=re.IGNORECASE).strip()
                     elif sticker_match:
                         query = sticker_match.group(1).strip()
                         if contains_emoji(query):
-                            await send_random_sticker(client, message.chat.id, query)
+                            await send_random_sticker(client, last_message.chat.id, query)
                         else:
-                            await send_gif(client, message.chat.id, query)
+                            await send_gif(client, last_message.chat.id, query)
                         part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
                     
                     if part:
-                        await message.reply(part)
+                        await last_message.reply(part)
             else:
                 logger.info(f"Сообщение проигнорировано: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
+                
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
