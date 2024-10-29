@@ -255,7 +255,7 @@ async def process_queue():
                     message_groups[chat_id]['timer'].cancel()
                 
                 async def process_message_group(chat_id):
-                    await asyncio.sleep(5)  # Ждём 5 секунд для группировки
+                    await asyncio.sleep(10)  # Ждём 5 секунд для группировки
                     
                     if chat_id in message_groups:
                         last_client, last_message = message_groups[chat_id]['messages'][-1]
