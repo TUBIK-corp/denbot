@@ -211,20 +211,38 @@ async def auto_reply(client, message):
 async def process_queue():
     global is_online, last_activity_time
     message_groups = {}
+    last_ping_time = {}
+    ping_timeout = 10
     
     while True:
         try:
             client, message = await message_queue.get()
             chat_id = message.chat.id
+            current_time = time.time()
             
-            if (message.reply_to_message and message.reply_to_message.from_user.is_self) or message.chat.type == ChatType.PRIVATE or is_mentioned(message):
+            is_direct_interaction = (
+                (message.reply_to_message and message.reply_to_message.from_user.is_self) or 
+                message.chat.type == ChatType.PRIVATE or 
+                is_mentioned(message)
+            )
+            
+            if is_direct_interaction or (
+                chat_id in last_ping_time and 
+                current_time - last_ping_time[chat_id] < ping_timeout
+            ):
+                if is_direct_interaction:
+                    last_ping_time[chat_id] = current_time
+
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
                     await app.invoke(functions.account.UpdateStatus(offline=False))
                     is_online = True
                     logger.info("Статус: онлайн")
-                last_activity_time = time.time()
+                last_activity_time = current_time
                 
+                await client.read_chat_history(chat_id)
+                
+
                 if chat_id not in message_groups:
                     message_groups[chat_id] = {
                         'messages': [],
@@ -237,7 +255,7 @@ async def process_queue():
                     message_groups[chat_id]['timer'].cancel()
                 
                 async def process_message_group(chat_id):
-                    await asyncio.sleep(5)  # Ждём 5 секунд
+                    await asyncio.sleep(5)  # Ждём 5 секунд для группировки
                     
                     if chat_id in message_groups:
                         last_client, last_message = message_groups[chat_id]['messages'][-1]
@@ -251,7 +269,6 @@ async def process_queue():
                         
                         logger.info(f"Обработка группы сообщений. Последнее сообщение: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
                         
-                        await last_client.read_chat_history(chat_id)
                         response = await get_response(
                             message=last_message,
                             chat_id=chat_id,
