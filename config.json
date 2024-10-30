@@ -13,11 +13,5 @@
     "allowed_chats": [],
     "monitored_channels": [],
     "digest_channel_id": null,
-    "digest_interval_minutes": 60,
-    "digest_settings": {
-        "save_files": true,
-        "detailed_logging": true,
-        "max_stored_digests": 100,
-        "min_messages_for_digest": 1
-    }
+    "digest_interval_minutes": 60
 }

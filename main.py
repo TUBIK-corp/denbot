@@ -27,6 +27,7 @@ last_activity_time = 0
 is_online = False
 message_queue = asyncio.Queue()
 me = None
+digest_manager = None
 
 def contains_emoji(text):
     emoji_pattern = re.compile("["
@@ -211,7 +212,8 @@ async def auto_reply(client, message):
 
 @app.on_message(filters.channel)
 async def monitor_channels(client, message):
-    await digest_manager.monitor_channel_post(message)
+    if digest_manager:
+        await digest_manager.monitor_channel_post(message)
 
 async def process_queue():
     global is_online, last_activity_time
@@ -260,7 +262,7 @@ async def process_queue():
                     message_groups[chat_id]['timer'].cancel()
                 
                 async def process_message_group(chat_id):
-                    await asyncio.sleep(10)  # Ждём 5 секунд для группировки
+                    await asyncio.sleep(10)  # Ждём 10 секунд для группировки
                     
                     if chat_id in message_groups:
                         last_client, last_message = message_groups[chat_id]['messages'][-1]
@@ -281,6 +283,7 @@ async def process_queue():
                             name=f"{user_first_name} {user_last_name}".strip()
                         )
                         
+                        messages_sent = []
                         for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
                             logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
                             await simulate_typing(last_client, chat_id, part)
@@ -304,13 +307,15 @@ async def process_queue():
                                 part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
                             
                             if part:
-                                await last_message.reply(part)
+                                sent_msg = await last_message.reply(part)
+                                messages_sent.append(sent_msg)
 
+                        if digest_manager:
                             await digest_manager.save_message_group(
                                 chat_id=chat_id,
                                 chat_title=last_message.chat.title or "Unknown Chat",
-                                messages=message_groups[chat_id]['messages'],
-                                responses=[response]
+                                messages=[msg[1] for msg in message_groups[chat_id]['messages']],
+                                responses=[msg.text for msg in messages_sent if msg.text]
                             )
                         del message_groups[chat_id]
                 timer = asyncio.create_task(process_message_group(chat_id))
@@ -325,10 +330,14 @@ async def process_queue():
             message_queue.task_done()
 
 async def main():
-    global me
+    global me, digest_manager
+    logger.info("Starting bot...")
     await app.start()
     me = await app.get_me()
+    logger.info(f"Bot started as {me.first_name} {me.last_name} (@{me.username})")
     await app.invoke(functions.account.UpdateStatus(offline=True))
+    digest_manager = channel.setup(app, client, config)
+    logger.info("Digest manager initialized")
     asyncio.create_task(process_queue())
     leo.setup(app, client, config)
     await simulate_online_status()
