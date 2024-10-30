@@ -4,3 +4,4 @@
 /__pycache__
 prompt.txt
 main old.py
+config old.json

@@ -4,14 +4,15 @@ import random
 import asyncio
 import logging
 import re
+
 import leo
+import channel
+
 from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
 from pyrogram.enums import ChatType, ChatAction
 from pyrogram.raw import functions, types
-
-random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -208,6 +209,10 @@ async def send_random_sticker(client, chat_id, emoji):
 async def auto_reply(client, message):
     await message_queue.put([client, message])
 
+@app.on_message(filters.channel)
+async def monitor_channels(client, message):
+    await digest_manager.monitor_channel_post(message)
+
 async def process_queue():
     global is_online, last_activity_time
     message_groups = {}
@@ -300,6 +305,13 @@ async def process_queue():
                             
                             if part:
                                 await last_message.reply(part)
+
+                            await digest_manager.save_message_group(
+                                chat_id=chat_id,
+                                chat_title=last_message.chat.title or "Unknown Chat",
+                                messages=message_groups[chat_id]['messages'],
+                                responses=[response]
+                            )
                         del message_groups[chat_id]
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
@@ -323,3 +335,4 @@ async def main():
 
 if __name__ == "__main__":
     app.run(main())
+    digest_manager = channel.setup(app, client, config)

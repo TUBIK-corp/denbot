@@ -1,7 +1,8 @@
 {
-    "mistral_api_key": "",
-    "mistral_agent_id": "",
-    "message_memory": 100,
+    "mistral_api_key": "YOUR_MISTRAL_API_KEY_HERE",
+    "mistral_agent_id": "ag:YOUR_AGENT_ID_HERE",
+    "digest_agent_id": "ag:YOUR_DIGEST_AGENT_ID_HERE",
+    "message_memory": 20,
     "typing_speed": 20,
     "delay_before_online": [4, 10],
     "delay_before_offline": [90, 180],
@@ -9,5 +10,8 @@
     "tg_api_hash": "",
     "bot_names": [],
     "name_match_threshold": 0.7,
-    "allowed_chats": []
+    "allowed_chats": [],
+    "monitored_channels": [],
+    "digest_channel_id": null,
+    "digest_interval_minutes": 60
 }
