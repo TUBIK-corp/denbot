@@ -206,15 +206,15 @@ async def send_random_sticker(client, chat_id, emoji):
         logger.error(f"Ошибка при отправке стикера: {e}")
         return False
 
-@app.on_message(filters.create(chat_filter_func))
-async def auto_reply(client, message):
-    await message_queue.put([client, message])
-
 @app.on_message(filters.channel)
 async def monitor_channels(client, message):
     logger.info(f"Получено сообщение в канале: {message.text}")
     if digest_manager:
         await digest_manager.monitor_channel_post(message)
+
+@app.on_message(filters.create(chat_filter_func) & ~(filters.channel))
+async def auto_reply(client, message):
+    await message_queue.put([client, message])
 
 async def process_queue():
     global is_online, last_activity_time
