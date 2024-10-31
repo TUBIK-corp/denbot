@@ -90,7 +90,8 @@ class DigestManager:
     async def monitor_channel_post(self, message: Message):
         """Monitor and save channel posts"""
         try:
-            if message.chat.id not in self.config['monitored_channels']:
+            logger.info(f"Monitoring channel post from: {message.chat.title} {message.chat.username} {message.chat.id}")
+            if message.chat.username not in self.config['monitored_channels']:
                 return
                 
             async with self.digest_lock:
