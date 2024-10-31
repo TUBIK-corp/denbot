@@ -41,15 +41,13 @@ def contains_emoji(text):
     return bool(emoji_pattern.search(text))
 
 def chat_filter_func(_, __, message):
-    if not message.from_user:
-        return False
     if message.from_user and message.from_user.username == "leomatchbot":
         return False
     if message.text and message.text.strip().lower() in ['/leo_start', '/leo_stop']:
         return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
-    return filters.private and (filters.text | filters.sticker | filters.animation)
+    return (filters.private | filters.channel) and (filters.text | filters.sticker | filters.animation)
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
@@ -133,8 +131,6 @@ async def simulate_online_status():
         await asyncio.sleep(10)
 
 def is_mentioned(message):
-    if not message.text or not message.from_user:
-        return False
     bot_names = config['bot_names']
     name_match_threshold = config['name_match_threshold']
     text = re.sub(r'[^\w\s]', '', message.text or '').lower().split()
@@ -232,9 +228,10 @@ async def process_queue():
             current_time = time.time()
             
             is_direct_interaction = (
-                (message.reply_to_message and message.reply_to_message.from_user.is_self) or 
+                (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
                 message.chat.type == ChatType.PRIVATE or 
-                is_mentioned(message)
+                is_mentioned(message) or
+                message.chat.type == ChatType.CHANNEL
             )
             
             if is_direct_interaction or (
@@ -252,7 +249,6 @@ async def process_queue():
                 last_activity_time = current_time
                 
                 await client.read_chat_history(chat_id)
-                
 
                 if chat_id not in message_groups:
                     message_groups[chat_id] = {
