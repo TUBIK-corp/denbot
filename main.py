@@ -90,7 +90,7 @@ def extract_gif_info(animation):
         return "Unknown GIF"
 
 async def get_response(message, chat_id, message_id, name="unknown"):
-    asyncio.sleep(0.5)
+    await asyncio.sleep(0.5)
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     
     if isinstance(message, str):
