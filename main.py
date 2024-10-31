@@ -228,7 +228,7 @@ async def process_queue():
             current_time = time.time()
             
             is_direct_interaction = (
-                (message.reply_to_message and message.reply_to_message.from_user.is_self) or 
+                (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
                 message.chat.type == ChatType.PRIVATE or 
                 is_mentioned(message)
             )
@@ -320,10 +320,7 @@ async def process_queue():
                         del message_groups[chat_id]
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
-                
-            else:
-                logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {message.chat.title or 'Unknown Chat'} | Пользователь: {message.from_user.username or 'Unknown'}")
-                
+            else: logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
