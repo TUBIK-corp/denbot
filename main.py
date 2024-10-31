@@ -232,7 +232,8 @@ async def process_queue():
                 (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
                 message.chat.type == ChatType.PRIVATE or 
                 is_mentioned(message) or
-                message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP]
+                message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP] or
+                message.sender_chat
             )
             
             if is_direct_interaction or (
@@ -241,6 +242,21 @@ async def process_queue():
             ):
                 if is_direct_interaction:
                     last_ping_time[chat_id] = current_time
+
+                if is_direct_interaction:
+                    reason = "Unknown"
+                    if message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self:
+                        reason = "Reply to bot"
+                    elif message.chat.type == ChatType.PRIVATE:
+                        reason = "Private chat"
+                    elif is_mentioned(message):
+                        reason = "Bot mentioned"
+                    elif message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP]:
+                        reason = f"Channel or Supergroup ({message.chat.type})"
+                    elif message.sender_chat:
+                        reason = "Message from channel"
+                    
+                    logger.info(f"Прямое взаимодействие: {reason} | Чат: {message.chat.title} | ID чата: {chat_id}")
 
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
@@ -321,12 +337,13 @@ async def process_queue():
                         del message_groups[chat_id]
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
-                
+                pass
             else:
-                logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {message.chat.title or 'Unknown Chat'} | Пользователь: {message.from_user.username or 'Unknown'}")
-                
+                content = message.text or message.caption or "Не текстовое сообщение"
+                logger.info(f"Сообщение проигнорировано: {content[:50]}... | Чат: {message.chat.title} | Тип чата: {message.chat.type} | ID чата: {chat_id} | Пользователь: {message.from_user.username if message.from_user else 'Unknown'}")
+        
         except Exception as e:
-            logger.error(f"Ошибка при обработке сообщения: {e}")
+            logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         finally:
             message_queue.task_done()
 
