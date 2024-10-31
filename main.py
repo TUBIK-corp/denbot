@@ -41,6 +41,8 @@ def contains_emoji(text):
     return bool(emoji_pattern.search(text))
 
 def chat_filter_func(_, __, message):
+    if not message.from_user:
+        return False
     if message.from_user and message.from_user.username == "leomatchbot":
         return False
     if message.text and message.text.strip().lower() in ['/leo_start', '/leo_stop']:
@@ -131,6 +133,8 @@ async def simulate_online_status():
         await asyncio.sleep(10)
 
 def is_mentioned(message):
+    if not message.text or not message.from_user:
+        return False
     bot_names = config['bot_names']
     name_match_threshold = config['name_match_threshold']
     text = re.sub(r'[^\w\s]', '', message.text or '').lower().split()
