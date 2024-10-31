@@ -300,9 +300,11 @@ async def process_queue():
                             name=f"{user_first_name} {user_last_name}".strip()
                         )
                         
+                        logger.info(f"Подготовлен ответ для отправки: {response[:50]}... | Чат: {chat_title} | ID чата: {chat_id}")
+
                         messages_sent = []
                         for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
-                            logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
+                            logger.info(f"Попытка отправки ответа: {part[:50]}... | Чат: {chat_title} | ID чата: {chat_id}")
                             await simulate_typing(last_client, chat_id, part)
                             
                             gif_match = re.search(r'\{(.*?)[\s_]?gif\}', part, re.IGNORECASE)
@@ -324,9 +326,13 @@ async def process_queue():
                                 part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
                             
                             if part:
-                                sent_msg = await last_message.reply(part)
-                                messages_sent.append(sent_msg)
-
+                                try:
+                                    sent_msg = await last_message.reply(part)
+                                    messages_sent.append(sent_msg)
+                                    logger.info(f"Ответ успешно отправлен | Чат: {chat_title} | ID чата: {chat_id}")
+                                except Exception as e:
+                                    logger.error(f"Ошибка при отправке ответа: {e} | Чат: {chat_title} | ID чата: {chat_id}")
+                        
                         if digest_manager:
                             await digest_manager.save_message_group(
                                 chat_id=chat_id,
