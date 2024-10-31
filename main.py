@@ -47,7 +47,7 @@ def chat_filter_func(_, __, message):
         return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
-    return (filters.private | filters.channel | filters.group) and (filters.text | filters.sticker | filters.animation)
+    return filters.private and (filters.text | filters.sticker | filters.animation)
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
@@ -90,7 +90,7 @@ def extract_gif_info(animation):
         return "Unknown GIF"
 
 async def get_response(message, chat_id, message_id, name="unknown"):
-    await asyncio.sleep(0.5)
+   await asyncio.sleep(0.5)
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     
     if isinstance(message, str):
@@ -208,7 +208,6 @@ async def send_random_sticker(client, chat_id, emoji):
 
 @app.on_message(filters.create(chat_filter_func))
 async def auto_reply(client, message):
-    logger.info(f"Получено сообщение: тип чата {message.chat.type}, ID чата {message.chat.id}")
     await message_queue.put([client, message])
 
 @app.on_message(filters.channel)
@@ -229,11 +228,9 @@ async def process_queue():
             current_time = time.time()
             
             is_direct_interaction = (
-                (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
+                (message.reply_to_message and message.reply_to_message.from_user.is_self) or 
                 message.chat.type == ChatType.PRIVATE or 
-                is_mentioned(message) or
-                message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP] or
-                message.sender_chat
+                is_mentioned(message)
             )
             
             if is_direct_interaction or (
@@ -243,21 +240,6 @@ async def process_queue():
                 if is_direct_interaction:
                     last_ping_time[chat_id] = current_time
 
-                if is_direct_interaction:
-                    reason = "Unknown"
-                    if message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self:
-                        reason = "Reply to bot"
-                    elif message.chat.type == ChatType.PRIVATE:
-                        reason = "Private chat"
-                    elif is_mentioned(message):
-                        reason = "Bot mentioned"
-                    elif message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP]:
-                        reason = f"Channel or Supergroup ({message.chat.type})"
-                    elif message.sender_chat:
-                        reason = "Message from channel"
-                    
-                    logger.info(f"Прямое взаимодействие: {reason} | Чат: {message.chat.title} | ID чата: {chat_id}")
-
                 if not is_online:
                     await asyncio.sleep(random.uniform(config['delay_before_online'][0], config['delay_before_online'][1]))
                     await app.invoke(functions.account.UpdateStatus(offline=False))
@@ -266,6 +248,7 @@ async def process_queue():
                 last_activity_time = current_time
                 
                 await client.read_chat_history(chat_id)
+                
 
                 if chat_id not in message_groups:
                     message_groups[chat_id] = {
@@ -300,11 +283,9 @@ async def process_queue():
                             name=f"{user_first_name} {user_last_name}".strip()
                         )
                         
-                        logger.info(f"Подготовлен ответ для отправки: {response[:50]}... | Чат: {chat_title} | ID чата: {chat_id}")
-
                         messages_sent = []
                         for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
-                            logger.info(f"Попытка отправки ответа: {part[:50]}... | Чат: {chat_title} | ID чата: {chat_id}")
+                            logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
                             await simulate_typing(last_client, chat_id, part)
                             
                             gif_match = re.search(r'\{(.*?)[\s_]?gif\}', part, re.IGNORECASE)
@@ -326,13 +307,9 @@ async def process_queue():
                                 part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
                             
                             if part:
-                                try:
-                                    sent_msg = await last_message.reply(part)
-                                    messages_sent.append(sent_msg)
-                                    logger.info(f"Ответ успешно отправлен | Чат: {chat_title} | ID чата: {chat_id}")
-                                except Exception as e:
-                                    logger.error(f"Ошибка при отправке ответа: {e} | Чат: {chat_title} | ID чата: {chat_id}")
-                        
+                                sent_msg = await last_message.reply(part)
+                                messages_sent.append(sent_msg)
+
                         if digest_manager:
                             await digest_manager.save_message_group(
                                 chat_id=chat_id,
@@ -343,13 +320,12 @@ async def process_queue():
                         del message_groups[chat_id]
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
-                pass
+                
             else:
-                content = message.text or message.caption or "Не текстовое сообщение"
-                logger.info(f"Сообщение проигнорировано: {content[:50]}... | Чат: {message.chat.title} | Тип чата: {message.chat.type} | ID чата: {chat_id} | Пользователь: {message.from_user.username if message.from_user else 'Unknown'}")
-        
+                logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {message.chat.title or 'Unknown Chat'} | Пользователь: {message.from_user.username or 'Unknown'}")
+                
         except Exception as e:
-            logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
+            logger.error(f"Ошибка при обработке сообщения: {e}")
         finally:
             message_queue.task_done()
 
