@@ -47,7 +47,7 @@ def chat_filter_func(_, __, message):
         return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
-    return (filters.private | filters.channel) and (filters.text | filters.sticker | filters.animation)
+    return (filters.private | filters.channel | filters.group) and (filters.text | filters.sticker | filters.animation)
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
@@ -208,6 +208,7 @@ async def send_random_sticker(client, chat_id, emoji):
 
 @app.on_message(filters.create(chat_filter_func))
 async def auto_reply(client, message):
+    logger.info(f"Получено сообщение: тип чата {message.chat.type}, ID чата {message.chat.id}")
     await message_queue.put([client, message])
 
 @app.on_message(filters.channel)
@@ -231,7 +232,7 @@ async def process_queue():
                 (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
                 message.chat.type == ChatType.PRIVATE or 
                 is_mentioned(message) or
-                message.chat.type == ChatType.CHANNEL
+                message.chat.type in [ChatType.CHANNEL, ChatType.SUPERGROUP]
             )
             
             if is_direct_interaction or (
