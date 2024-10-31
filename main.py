@@ -57,7 +57,7 @@ async def get_chat_history(chat_id, limit, current_message_id):
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
             name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
-            role = "assistant" if message.from_user.is_self else "user"
+            role = "assistant" if message.from_user and message.from_user.is_self else "user"
             mentioned = is_mentioned(message)
             
             if role != current_role:
@@ -272,7 +272,7 @@ async def process_queue():
                         chat_title = last_message.chat.title or "Unknown Chat"
                         user_first_name = last_message.from_user.first_name or "Unknown"
                         user_last_name = last_message.from_user.last_name or ""
-                        user_username = last_message.from_user.username or "Unknown"
+                        user_username = message.from_user.username if message.from_user and message.from_user.username else "Unknown"
                         
                         logger.info(f"Обработка группы сообщений. Последнее сообщение: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
                         
