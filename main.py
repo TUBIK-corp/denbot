@@ -212,6 +212,7 @@ async def auto_reply(client, message):
 
 @app.on_message(filters.channel)
 async def monitor_channels(client, message):
+    logger.info(f"Получено сообщение в канале: {message.text}")
     if digest_manager:
         await digest_manager.monitor_channel_post(message)
 
