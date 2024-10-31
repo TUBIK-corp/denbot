@@ -116,7 +116,6 @@ class DigestManager:
                 'message_groups': [asdict(group) for group in self.message_groups],
                 'channel_posts': [asdict(post) for post in self.channel_posts],
                 'stats': {
-                    'total_chats': len({group.chat_id for group in self.message_groups}),
                     'total_messages': sum(len(group.messages) for group in self.message_groups),
                     'total_responses': sum(len(group.responses) for group in self.message_groups),
                     'total_channel_posts': len(self.channel_posts),
