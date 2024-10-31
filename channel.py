@@ -66,7 +66,7 @@ class DigestManager:
             try:
                 message_dicts = [{
                     'user_name': f"{msg.from_user.first_name} {msg.from_user.last_name or ''}" if msg.from_user else "Unknown",
-                    'text': msg.text or str(msg.sticker.emoji if msg.sticker else "")
+                    'text': msg.text if msg.text else str(msg.sticker.emoji if msg.sticker else "")
                 } for msg in messages]
                 
                 response_dicts = [{
@@ -97,7 +97,7 @@ class DigestManager:
             async with self.digest_lock:
                 post = ChannelPost(
                     channel_title=message.chat.title,
-                    text=message.text or ""
+                    text=message.text if message.text else str(message.sticker.emoji if message.sticker else "")
                 )
                 
                 self.channel_posts.append(post)
