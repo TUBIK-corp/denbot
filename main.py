@@ -56,7 +56,9 @@ async def get_chat_history(chat_id, limit, current_message_id):
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
-            name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
+            if message.from_user: name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
+            elif message.sender_chat: name = message.sender_chat.title
+            else: name = "Unknown"
             role = "assistant" if message.from_user and message.from_user.is_self else "user"
             mentioned = is_mentioned(message)
             
