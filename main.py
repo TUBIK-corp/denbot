@@ -322,7 +322,7 @@ async def process_queue():
                                 sent_msg = await last_message.reply(part)
                                 messages_sent.append(sent_msg)
 
-                        asyncio.sleep(1)
+                        await asyncio.sleep(0.5)
                         if memory_manager:
                             await memory_manager.process_conversation(
                                 messages=[msg[1] for msg in message_groups[chat_id]['messages']],
