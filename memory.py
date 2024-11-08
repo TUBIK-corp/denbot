@@ -94,7 +94,7 @@ class MemoryManager:
                     } for msg in messages],
                     'bot_responses': bot_responses,
                     'current_memory': [
-                        f"[{entry.importance}] {entry.content} (Context: {entry.context})"
+                        f"Importance: {entry.importance}\nContent: {entry.content}\nContext: {entry.context}"
                         for entry in sorted(self.memory, key=lambda x: x.importance, reverse=True)
                     ]
                 }
