@@ -53,6 +53,13 @@ def chat_filter_func(_, __, message):
 
 async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
+
+    relevant_memory = memory_manager.get_relevant_memory()
+    messages.insert(0, {
+        "role": "assistant",
+        "content": f"Моя память:\n{relevant_memory}"
+    })
+
     current_role = None
     current_content = []
     
@@ -80,15 +87,11 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 message_text += '{'+str(gif_info)+' gif}'
             
             current_content.append(message_text)
-    relevant_memory = memory_manager.get_relevant_memory()
-    messages.append({
-        "role": "assistant",
-        "content": f"Моя память:\n{relevant_memory}"
-    })
     if current_role:
         messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
-    logger.info(messages[::-1])
-    return messages[::-1]
+    messages[1:] = messages[1:][::-1]
+    logger.info(messages)
+    return messages
 
 def extract_gif_info(animation):
     if animation.file_name:
