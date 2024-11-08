@@ -142,6 +142,7 @@ class MemoryManager:
                     except (IndexError, ValueError) as e:
                         logger.error(f"Error parsing memory entry: {e}\nEntry content: {entry}")
                         continue
+                self.memory.extend(memory_entries)
                 await self.cleanup_memory()
                 await self.save_memory()
                 logger.info("Memory has been replaced and saved.")
