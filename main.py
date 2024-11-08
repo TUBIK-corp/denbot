@@ -55,12 +55,6 @@ async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
     current_role = None
     current_content = []
-
-    relevant_memory = memory_manager.get_relevant_memory()
-    messages.append({
-        "role": "assistant",
-        "content": f"Моя память:\n{relevant_memory}"
-    })
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
@@ -86,6 +80,11 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 message_text += '{'+str(gif_info)+' gif}'
             
             current_content.append(message_text)
+    relevant_memory = memory_manager.get_relevant_memory()
+    messages.append({
+        "role": "assistant",
+        "content": f"Моя память:\n{relevant_memory}"
+    })
     if current_role:
         messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
     logger.info(messages[::-1])
@@ -322,8 +321,8 @@ async def process_queue():
 
                         if memory_manager:
                             await memory_manager.process_conversation(
-                                messages=message_groups[chat_id]['messages'],
-                                bot_responses=[response],
+                                messages=[msg[1] for msg in message_groups[chat_id]['messages']],
+                                bot_responses=[msg.text for msg in messages_sent if msg.text],
                                 chat_title=chat_title
                             )
 
