@@ -127,10 +127,6 @@ class MemoryManager:
                         importance_line = next((line for line in lines if line.startswith('Importance:')), None)
                         content_line = next((line for line in lines if line.startswith('Content:')), None)
                         context_line = next((line for line in lines if line.startswith('Context:')), None)
-                        
-                        if not importance_line or not content_line:
-                            logger.warning(f"Missing required fields in entry: {entry}")
-                            continue
                             
                         importance = int(importance_line.split(': ')[1])
                         content = content_line.split(': ')[1]
