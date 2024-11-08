@@ -103,9 +103,10 @@ class MemoryManager:
                     agent_id=self.config['memory_agent_id'],
                     messages=[{
                         "role": "user",
-                        "content": f"Проанализируй эту беседу и выдели значимую информацию: {conversation_data}"
+                        "content": f"Проанализируй эту беседу и выдели значимую информацию ориентируясь на структуру в промпте: {conversation_data}"
                     }]
                 )
+                logger.info(f"Memory response: {chat_response}")
 
                 if not chat_response.choices or not chat_response.choices[0].message.content:
                     logger.warning("Received empty response from Mistral API")
