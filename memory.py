@@ -98,7 +98,7 @@ class MemoryManager:
                         for entry in sorted(self.memory, key=lambda x: x.importance, reverse=True)
                     ]
                 }
-
+                
                 chat_response = self.mistral.agents.complete(
                     agent_id=self.config['memory_agent_id'],
                     messages=[{
@@ -107,16 +107,34 @@ class MemoryManager:
                     }]
                 )
                 
-                memory_entries = chat_response.choices[0].message.content.split('\n---\n')
+                if not chat_response.choices or not chat_response.choices[0].message.content:
+                    logger.warning("Received empty response from Mistral API")
+                    return
+                
+                content = chat_response.choices[0].message.content.strip()
+                if not content:
+                    return
+                    
+                memory_entries = [entry.strip() for entry in content.split('\n---\n') if entry.strip()]
                 
                 for entry in memory_entries:
-                    if not entry.strip():
-                        continue
                     try:
-                        lines = entry.strip().split('\n')
-                        importance = int(lines[0].split(': ')[1])
-                        content = lines[1].split(': ')[1]
-                        context = lines[2].split(': ')[1] if len(lines) > 2 else "General"
+                        lines = entry.split('\n')
+                        if len(lines) < 2:
+                            logger.warning(f"Skipping invalid entry format: {entry}")
+                            continue
+
+                        importance_line = next((line for line in lines if line.startswith('Importance:')), None)
+                        content_line = next((line for line in lines if line.startswith('Content:')), None)
+                        context_line = next((line for line in lines if line.startswith('Context:')), None)
+                        
+                        if not importance_line or not content_line:
+                            logger.warning(f"Missing required fields in entry: {entry}")
+                            continue
+                            
+                        importance = int(importance_line.split(': ')[1])
+                        content = content_line.split(': ')[1]
+                        context = context_line.split(': ')[1] if context_line else "General"
                         
                         new_entry = MemoryEntry(
                             content=content,
@@ -128,13 +146,14 @@ class MemoryManager:
                         
                         self.memory.append(new_entry)
                         logger.info(f"Added new memory entry: {content[:50]}...")
-                    except Exception as e:
-                        logger.error(f"Error processing conversation: {e}")
-                
+                        
+                    except (IndexError, ValueError) as e:
+                        logger.error(f"Error parsing memory entry: {e}\nEntry content: {entry}")
+                        continue
+                        
                 await self.cleanup_memory()
-                
                 await self.save_memory()
-                
+                    
             except Exception as e:
                 logger.error(f"Error processing conversation: {e}")
 
