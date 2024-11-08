@@ -322,15 +322,14 @@ async def process_queue():
                                 sent_msg = await last_message.reply(part)
                                 messages_sent.append(sent_msg)
 
-                        asyncio.sleep(5)
+                        asyncio.sleep(1)
                         if memory_manager:
                             await memory_manager.process_conversation(
                                 messages=[msg[1] for msg in message_groups[chat_id]['messages']],
                                 bot_responses=[msg.text for msg in messages_sent if msg.text],
                                 chat_title=chat_title
                             )
-
-                        asyncio.sleep(5)
+                        
                         if digest_manager:
                             await digest_manager.save_message_group(
                                 chat_id=chat_id,
