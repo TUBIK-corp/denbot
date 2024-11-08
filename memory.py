@@ -119,9 +119,9 @@ class MemoryManager:
                 for entry in [entry.strip() for entry in content.split('\n---\n') if entry.strip()]:
                     try:
                         lines = entry.split('\n')
-                        importance_line = next((line for line in lines if line.startswith('Importance:')), None)
-                        content_line = next((line for line in lines if line.startswith('Content:')), None)
-                        context_line = next((line for line in lines if line.startswith('Context:')), None)
+                        importance_line = next((line for line in lines if line.startswith('Importance:') or line.startswith('Важность:')), None)
+                        content_line = next((line for line in lines if line.startswith('Content:') or line.startswith('Содержание:')), None)
+                        context_line = next((line for line in lines if line.startswith('Context:') or line.startswith('Контекст:')), None)
                         
                         if importance_line and content_line:
                             importance = int(importance_line.split(': ')[1])
