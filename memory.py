@@ -106,49 +106,44 @@ class MemoryManager:
                         "content": f"Проанализируй эту беседу и выдели значимую информацию: {conversation_data}"
                     }]
                 )
-                
+
                 if not chat_response.choices or not chat_response.choices[0].message.content:
                     logger.warning("Received empty response from Mistral API")
                     return
-                
+
                 content = chat_response.choices[0].message.content.strip()
                 if not content:
                     return
-                    
-                memory_entries = [entry.strip() for entry in content.split('\n---\n') if entry.strip()]
                 
-                for entry in memory_entries:
+                memory_entries = []
+                for entry in [entry.strip() for entry in content.split('\n---\n') if entry.strip()]:
                     try:
                         lines = entry.split('\n')
-                        if len(lines) < 2:
-                            logger.warning(f"Skipping invalid entry format: {entry}")
-                            continue
-
                         importance_line = next((line for line in lines if line.startswith('Importance:')), None)
                         content_line = next((line for line in lines if line.startswith('Content:')), None)
                         context_line = next((line for line in lines if line.startswith('Context:')), None)
+                        
+                        if importance_line and content_line:
+                            importance = int(importance_line.split(': ')[1])
+                            content = content_line.split(': ')[1]
+                            context = context_line.split(': ')[1] if context_line else "General"
+
+                            memory_entries.append(MemoryEntry(
+                                content=content,
+                                timestamp=time.time(),
+                                importance=importance,
+                                context=context,
+                                chat_title=chat_title
+                            ))
+                        else:
+                            logger.warning(f"Skipping invalid entry format: {entry}")
                             
-                        importance = int(importance_line.split(': ')[1])
-                        content = content_line.split(': ')[1]
-                        context = context_line.split(': ')[1] if context_line else "General"
-                        
-                        new_entry = MemoryEntry(
-                            content=content,
-                            timestamp=time.time(),
-                            importance=importance,
-                            context=context,
-                            chat_title=chat_title
-                        )
-                        
-                        self.memory.append(new_entry)
-                        logger.info(f"Added new memory entry: {content[:50]}...")
-                        
                     except (IndexError, ValueError) as e:
                         logger.error(f"Error parsing memory entry: {e}\nEntry content: {entry}")
                         continue
-                        
                 await self.cleanup_memory()
                 await self.save_memory()
+                logger.info("Memory has been replaced and saved.")
                     
             except Exception as e:
                 logger.error(f"Error processing conversation: {e}")
