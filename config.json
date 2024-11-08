@@ -2,6 +2,7 @@
     "mistral_api_key": "YOUR_MISTRAL_API_KEY_HERE",
     "mistral_agent_id": "ag:YOUR_AGENT_ID_HERE",
     "digest_agent_id": "ag:YOUR_DIGEST_AGENT_ID_HERE",
+    "memory_agent_id": "ag:YOUR_MEMORY_AGENT_ID_HERE",
     "message_memory": 20,
     "typing_speed": 20,
     "delay_before_online": [4, 10],

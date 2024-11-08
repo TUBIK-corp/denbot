@@ -7,6 +7,7 @@ import re
 
 import leo
 import channel
+import memory
 
 from difflib import SequenceMatcher
 from mistralai import Mistral
@@ -28,6 +29,7 @@ is_online = False
 message_queue = asyncio.Queue()
 me = None
 digest_manager = None
+memory_manager = None
 
 def contains_emoji(text):
     emoji_pattern = re.compile("["
@@ -53,6 +55,12 @@ async def get_chat_history(chat_id, limit, current_message_id):
     messages = []
     current_role = None
     current_content = []
+
+    relevant_memory = memory_manager.get_relevant_memory()
+    messages.append({
+        "role": "assistant",
+        "content": f"Моя память:\n{relevant_memory}"
+    })
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
@@ -250,8 +258,7 @@ async def process_queue():
                     logger.info("Статус: онлайн")
                 last_activity_time = current_time
                 
-                await client.read_chat_history(chat_id)
-                
+                await client.read_chat_history(chat_id)                
 
                 if chat_id not in message_groups:
                     message_groups[chat_id] = {
@@ -313,6 +320,13 @@ async def process_queue():
                                 sent_msg = await last_message.reply(part)
                                 messages_sent.append(sent_msg)
 
+                        if memory_manager:
+                            await memory_manager.process_conversation(
+                                messages=message_groups[chat_id]['messages'],
+                                bot_responses=[response],
+                                chat_title=chat_title
+                            )
+
                         if digest_manager:
                             await digest_manager.save_message_group(
                                 chat_id=chat_id,
@@ -330,13 +344,14 @@ async def process_queue():
             message_queue.task_done()
 
 async def main():
-    global me, digest_manager
+    global me, digest_manager, memory_manager
     logger.info("Starting bot...")
     await app.start()
     me = await app.get_me()
     logger.info(f"Bot started as {me.first_name} {me.last_name} (@{me.username})")
     await app.invoke(functions.account.UpdateStatus(offline=True))
     digest_manager = channel.setup(app, client, config)
+    memory_manager = memory.setup(app, client, config)
     logger.info("Digest manager initialized")
     asyncio.create_task(process_queue())
     leo.setup(app, client, config)
