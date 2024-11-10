@@ -280,7 +280,7 @@ async def process_queue():
                         last_client, last_message = message_groups[chat_id]['messages'][-1]
                         
                         content_type = "text" if last_message.text else "sticker" if last_message.sticker else "GIF" if last_message.animation else "unknown"
-                        content = last_message.text or (last_message.sticker.emoji if last_message.sticker else (extract_gif_info(last_message.animation) if last_message.animation else "unknown"))
+                        content = last_message.text or last_message.caption or (last_message.sticker.emoji if last_message.sticker else (extract_gif_info(last_message.animation) if last_message.animation else "unknown"))
                         chat_title = last_message.chat.title or "Unknown Chat"
                         user_first_name = last_message.from_user.first_name if last_message.from_user and last_message.from_user.first_name else "Unknown"
                         user_last_name = last_message.from_user.last_name if last_message.from_user and last_message.from_user.last_name else ""

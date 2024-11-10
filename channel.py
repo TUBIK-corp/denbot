@@ -66,7 +66,7 @@ class DigestManager:
             try:
                 message_dicts = [{
                     'user_name': f"{msg.from_user.first_name} {msg.from_user.last_name or ''}" if msg.from_user else "Unknown",
-                    'text': msg.text if msg.text else str(msg.sticker.emoji if msg.sticker else "")
+                    'text': msg.text if msg.text else msg.caption if msg.caption else str(msg.sticker.emoji if msg.sticker else "")
                 } for msg in messages]
                 
                 response_dicts = [{
