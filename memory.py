@@ -150,21 +150,28 @@ class MemoryManager:
             except Exception as e:
                 logger.error(f"Error processing conversation: {e}")
 
-    async def cleanup_memory(self):
-        """Очищает устаревшие или неважные записи"""
-        try:
-            self.memory.sort(key=lambda x: (x.importance, -x.timestamp))
-            
-            current_time = time.time()
-            self.memory = [
-                entry for entry in self.memory
-                if (current_time - entry.timestamp < 30 * 24 * 3600) or
-                (entry.importance >= 7)
-            ][:1000]
-            
-            logger.info(f"Cleaned up memory. Current entries: {len(self.memory)}")
-        except Exception as e:
-            logger.error(f"Error cleaning up memory: {e}")
+async def cleanup_memory(self):
+    """Очищает устаревшие или неважные записи и удаляет дубликаты"""
+    try:
+        self.memory.sort(key=lambda x: (x.importance, -x.timestamp))
+        
+        current_time = time.time()
+        filtered_memory = [
+            entry for entry in self.memory
+            if (current_time - entry.timestamp < 30 * 24 * 3600) or
+            (entry.importance >= 7)
+        ][:1000]
+        
+        unique_entries = {}
+        for entry in filtered_memory:
+            unique_key = (entry.content, entry.timestamp, entry.chat_title)
+            if unique_key not in unique_entries:
+                unique_entries[unique_key] = entry
+        
+        self.memory = list(unique_entries.values())
+        logger.info(f"Cleaned up memory. Current unique entries: {len(self.memory)}")
+    except Exception as e:
+        logger.error(f"Error cleaning up memory: {e}")
 
     def get_relevant_memory(self, context: str = None) -> str:
         """Возвращает релевантную память для текущего контекста"""
