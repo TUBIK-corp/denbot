@@ -164,7 +164,7 @@ async def cleanup_memory(self):
         
         unique_entries = {}
         for entry in filtered_memory:
-            unique_key = (entry.content, entry.timestamp, entry.chat_title)
+            unique_key = (entry.content, entry.chat_title)
             if unique_key not in unique_entries:
                 unique_entries[unique_key] = entry
         
