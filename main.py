@@ -51,6 +51,8 @@ async def get_chat_history(chat_id, limit, current_message_id):
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
+            is_bot_message = message.from_user and message.from_user.is_self
+            
             if message.from_user:
                 name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
                 user_tag = f"@{message.from_user.username}" if message.from_user.username else ""
@@ -78,13 +80,13 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 "type": message_type,
                 "name": name.strip(),
                 "tag": user_tag,
-                "content": content
+                "content": content,
+                "role": "assistant" if is_bot_message else "user"
             }
             
             message_counter += 1
             if message_counter >= limit:
                 break
-    
     return conversation
 
 def extract_gif_info(animation):
@@ -118,13 +120,16 @@ async def get_response(message, chat_id, message_id, name="unknown"):
         "type": "text" if message.text else "sticker" if message.sticker else "gif" if message.animation else "unknown",
         "name": name.strip(),
         "tag": user_tag,
-        "content": content
+        "content": content,
+        "role": "user"
     }
     
     try:
+        formatted_history = format_chat_history_for_mistral(chat_history)
+        
         chat_response = client.agents.complete(
             agent_id=config['mistral_agent_id'], 
-            messages=[{"role": "user", "content": json.dumps(chat_history)}],
+            messages=[{"role": "user", "content": json.dumps(formatted_history)}],
             response_format = {
                 "type": "json_object",
             }
@@ -162,6 +167,21 @@ async def get_response(message, chat_id, message_id, name="unknown"):
                 }
             }
         }
+
+def format_chat_history_for_mistral(chat_history):
+    # Sort messages by ID (chronological order)
+    sorted_messages = sorted(chat_history.items(), key=lambda x: int(x[0]))
+    formatted_history = {}
+    
+    for msg_id, msg_data in sorted_messages:
+        formatted_history[msg_id] = {
+            "name": msg_data["name"],
+            "tag": msg_data["tag"],
+            "content": msg_data["content"],
+            "role": msg_data.get("role", "user")  # Default to user if role not specified
+        }
+    
+    return formatted_history
 
 async def simulate_typing(client, chat_id, text):
     typing_speed = config['typing_speed'] 
