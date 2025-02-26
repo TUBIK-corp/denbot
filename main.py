@@ -5,10 +5,6 @@ import asyncio
 import logging
 import re
 
-import leo
-import channel
-import memory
-
 from difflib import SequenceMatcher
 from mistralai import Mistral
 from pyrogram import Client, filters
@@ -28,8 +24,6 @@ last_activity_time = 0
 is_online = False
 message_queue = asyncio.Queue()
 me = None
-digest_manager = None
-memory_manager = None
 
 def contains_emoji(text):
     emoji_pattern = re.compile("["
@@ -52,46 +46,46 @@ def chat_filter_func(_, __, message):
     return filters.private and (filters.text | filters.sticker | filters.animation)
 
 async def get_chat_history(chat_id, limit, current_message_id):
-    messages = []
-
-    relevant_memory = memory_manager.get_relevant_memory()
-    messages.insert(0, {
-        "role": "assistant",
-        "content": f"Моя память:\n{relevant_memory}"
-    })
-
-    current_role = None
-    current_content = []
+    conversation = {}
+    message_counter = 0
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
         if message.text or message.sticker or message.animation:
-            if message.from_user: name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
-            elif message.sender_chat: name = message.sender_chat.title
-            else: name = "Unknown"
-            role = "assistant" if message.from_user and message.from_user.is_self else "user"
-            mentioned = is_mentioned(message)
+            if message.from_user:
+                name = f"{message.from_user.first_name} {message.from_user.last_name or ''}"
+                user_tag = f"@{message.from_user.username}" if message.from_user.username else ""
+            elif message.sender_chat:
+                name = message.sender_chat.title
+                user_tag = ""
+            else:
+                name = "Unknown"
+                user_tag = ""
             
-            if role != current_role:
-                if current_role:
-                    messages.append({"role": current_role, "content": "\n".join(current_content)})
-                current_role = role
-                current_content = []
+            message_type = "text"
+            content = ""
             
-            message_text = f"[{name.strip()}]: {'[Mentioned] ' if mentioned else ''}"
             if message.text:
-                message_text += str(message.text)
+                message_type = "text"
+                content = message.text
             elif message.sticker:
-                message_text += '{'+str(message.sticker.emoji)+' sticker}'
+                message_type = "sticker"
+                content = message.sticker.emoji if message.sticker.emoji else "🔸"
             elif message.animation:
-                gif_info = extract_gif_info(message.animation)
-                message_text += '{'+str(gif_info)+' gif}'
+                message_type = "gif"
+                content = extract_gif_info(message.animation)
             
-            current_content.append(message_text)
-    if current_role:
-        messages.append({"role": current_role, "content": "\n".join(current_content[::-1])})
-    messages[1:] = messages[1:][::-1]
-    logger.info(messages)
-    return messages
+            conversation[str(message.id)] = {
+                "type": message_type,
+                "name": name.strip(),
+                "tag": user_tag,
+                "content": content
+            }
+            
+            message_counter += 1
+            if message_counter >= limit:
+                break
+    
+    return conversation
 
 def extract_gif_info(animation):
     if animation.file_name:
@@ -110,18 +104,64 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     elif message.text:
         content = message.text
     elif message.sticker:
-        content = '{'+str(message.sticker.emoji)+' sticker}'
+        content = message.sticker.emoji if message.sticker.emoji else "🔸"
     elif message.animation:
         gif_info = extract_gif_info(message.animation)
-        content = '{'+str(gif_info)+' gif}'
+        content = gif_info
     else:
         content = "Unsupported message type"
     
-    chat_history.append({"role": "user", "content": f"[{name}]: {content}"})
+    user_tag = f"@{message.from_user.username}" if message.from_user and message.from_user.username else ""
     
-    chat_response = client.agents.complete(agent_id=config['mistral_agent_id'], messages=chat_history)
-    assistant_response = chat_response.choices[0].message.content
-    return assistant_response
+    # Add the latest message to the history
+    chat_history[str(message.id)] = {
+        "type": "text" if message.text else "sticker" if message.sticker else "gif" if message.animation else "unknown",
+        "name": name.strip(),
+        "tag": user_tag,
+        "content": content
+    }
+    
+    try:
+        chat_response = client.agents.complete(
+            agent_id=config['mistral_agent_id'], 
+            messages=[{"role": "user", "content": json.dumps(chat_history)}],
+            response_format = {
+                "type": "json_object",
+            }
+        )
+        
+        response_data = chat_response.choices[0].message.content
+        
+        # If string response, try to parse as JSON
+        if isinstance(response_data, str):
+            try:
+                response_data = json.loads(response_data)
+            except json.JSONDecodeError:
+                # Fallback for compatibility
+                logger.warning("Received non-JSON response from Mistral, falling back to text mode")
+                return {
+                    "messages": {
+                        "0": {
+                            "type": "text",
+                            "content": response_data,
+                            "target": None
+                        }
+                    }
+                }
+        
+        return response_data
+    except Exception as e:
+        logger.error(f"Error getting response from Mistral: {e}")
+        # Return a simple error message in the expected format
+        return {
+            "messages": {
+                "0": {
+                    "type": "text",
+                    "content": "Извините, произошла ошибка при обработке запроса.",
+                    "target": None
+                }
+            }
+        }
 
 async def simulate_typing(client, chat_id, text):
     typing_speed = config['typing_speed'] 
@@ -143,9 +183,12 @@ async def simulate_online_status():
         await asyncio.sleep(10)
 
 def is_mentioned(message):
+    if not message.text:
+        return False
+        
     bot_names = config['bot_names']
     name_match_threshold = config['name_match_threshold']
-    text = re.sub(r'[^\w\s]', '', message.text or '').lower().split()
+    text = re.sub(r'[^\w\s]', '', message.text).lower().split()
     for word in text:
         for name in bot_names:
             if SequenceMatcher(None, name, word).ratio() > name_match_threshold:
@@ -218,12 +261,6 @@ async def send_random_sticker(client, chat_id, emoji):
         logger.error(f"Ошибка при отправке стикера: {e}")
         return False
 
-@app.on_message(filters.channel)
-async def monitor_channels(client, message):
-    logger.info(f"Получено сообщение в канале: {message.text}")
-    if digest_manager:
-        await digest_manager.monitor_channel_post(message)
-
 @app.on_message(filters.create(chat_filter_func) & ~(filters.channel))
 async def auto_reply(client, message):
     await message_queue.put([client, message])
@@ -288,78 +325,70 @@ async def process_queue():
                         
                         logger.info(f"Обработка группы сообщений. Последнее сообщение: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
                         
-                        response = await get_response(
+                        response_data = await get_response(
                             message=last_message,
                             chat_id=chat_id,
                             message_id=last_message.id,
                             name=f"{user_first_name} {user_last_name}".strip()
                         )
                         
-                        messages_sent = []
-                        for part in filter(None, response.split(f"[{me.first_name} {me.last_name}]: ")):
-                            logger.info(f"Ответ отправлен: {part} | Чат: {chat_title} | Пользователь: {user_username}")
-                            await simulate_typing(last_client, chat_id, part)
-                            
-                            gif_match = re.search(r'\{(.*?)[\s_]?gif\}', part, re.IGNORECASE)
-                            sticker_match = re.search(r'\{(.*?)[\s_]?sticker\}', part, re.IGNORECASE)
-
-                            if gif_match:
-                                query = gif_match.group(1).strip()
-                                if contains_emoji(query):
-                                    await send_random_sticker(last_client, chat_id, query)
-                                else:
-                                    await send_gif(last_client, chat_id, query)
-                                part = re.sub(r'\{.*?gif\}', '', part, flags=re.IGNORECASE).strip()
-                            elif sticker_match:
-                                query = sticker_match.group(1).strip()
-                                if contains_emoji(query):
-                                    await send_random_sticker(last_client, chat_id, query)
-                                else:
-                                    await send_gif(last_client, chat_id, query)
-                                part = re.sub(r'\{.*?sticker\}', '', part, flags=re.IGNORECASE).strip()
-                            
-                            if part:
-                                sent_msg = await last_message.reply(part)
-                                messages_sent.append(sent_msg)
-
-                        await asyncio.sleep(0.5)
-                        if memory_manager:
-                            await memory_manager.process_conversation(
-                                messages=[msg[1] for msg in message_groups[chat_id]['messages']],
-                                bot_responses=[msg.text for msg in messages_sent if msg.text],
-                                chat_title=chat_title
-                            )
+                        logger.info(f"Response data: {response_data}")
                         
-                        if digest_manager:
-                            await digest_manager.save_message_group(
-                                chat_id=chat_id,
-                                chat_title=last_message.chat.title or "Unknown Chat",
-                                messages=[msg[1] for msg in message_groups[chat_id]['messages']],
-                                responses=[msg.text for msg in messages_sent if msg.text]
-                            )
+                        try:
+                            if "messages" in response_data:
+                                for idx, msg_data in response_data["messages"].items():
+                                    msg_type = msg_data.get("type", "text")
+                                    msg_content = msg_data.get("content", "")
+                                    msg_target = msg_data.get("target")
+                                    
+                                    target_message = None
+                                    if msg_target:
+                                        try:
+                                            # Try to find the target message to reply to
+                                            for client_msg, orig_msg in message_groups[chat_id]['messages']:
+                                                if str(orig_msg.id) == str(msg_target):
+                                                    target_message = orig_msg
+                                                    break
+                                        except Exception as e:
+                                            logger.error(f"Error finding target message: {e}")
+                                    
+                                    if not target_message:
+                                        target_message = last_message
+                                    
+                                    if msg_type == "text" and msg_content:
+                                        await simulate_typing(last_client, chat_id, msg_content)
+                                        await target_message.reply(msg_content)
+                                    elif msg_type == "gif" and msg_content:
+                                        await send_gif(last_client, chat_id, msg_content)
+                                    elif msg_type == "sticker" and msg_content:
+                                        await send_random_sticker(last_client, chat_id, msg_content)
+                            else:
+                                logger.error("Invalid response format from Mistral")
+                        except Exception as e:
+                            logger.error(f"Error processing response: {e}")
+                            await last_message.reply("Произошла ошибка при обработке ответа.")
+                        
                         del message_groups[chat_id]
+                
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
-            else: logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
+            else: 
+                logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
         except Exception as e:
-            logger.error(f"Ошибка при обработке сообщения: {e}")
+            logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         finally:
             message_queue.task_done()
 
 async def main():
-    global me, digest_manager, memory_manager
+    global me
     logger.info("Starting bot...")
     await app.start()
     me = await app.get_me()
     logger.info(f"Bot started as {me.first_name} {me.last_name} (@{me.username})")
     await app.invoke(functions.account.UpdateStatus(offline=True))
-    digest_manager = channel.setup(app, client, config)
-    memory_manager = memory.setup(app, client, config)
-    logger.info("Digest manager initialized")
+    logger.info("Status set to offline")
     asyncio.create_task(process_queue())
-    leo.setup(app, client, config)
     await simulate_online_status()
 
 if __name__ == "__main__":
     app.run(main())
-    digest_manager = channel.setup(app, client, config)
