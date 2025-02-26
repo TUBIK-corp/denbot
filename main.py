@@ -4,6 +4,8 @@ import random
 import asyncio
 import logging
 import re
+import base64
+import io
 
 from difflib import SequenceMatcher
 from mistralai import Mistral
@@ -43,14 +45,14 @@ def chat_filter_func(_, __, message):
         return False
     if config['allowed_chats'] and message.chat.id in config['allowed_chats']:
         return True
-    return filters.private and (filters.text | filters.sticker | filters.animation)
+    return filters.private and (filters.text | filters.sticker | filters.animation | filters.photo)
 
 async def get_chat_history(chat_id, limit, current_message_id):
     conversation = {}
     message_counter = 0
     
     async for message in app.get_chat_history(chat_id, limit=limit, offset_id=current_message_id):
-        if message.text or message.sticker or message.animation:
+        if message.text or message.sticker or message.animation or message.photo:
             is_bot_message = message.from_user and message.from_user.is_self
             
             if message.from_user:
@@ -69,12 +71,19 @@ async def get_chat_history(chat_id, limit, current_message_id):
             if message.text:
                 message_type = "text"
                 content = message.text
+            elif message.caption:
+                message_type = "text"
+                content = message.caption
             elif message.sticker:
                 message_type = "sticker"
                 content = message.sticker.emoji if message.sticker.emoji else "🔸"
             elif message.animation:
                 message_type = "gif"
                 content = extract_gif_info(message.animation)
+            elif message.photo:
+                message_type = "photo"
+                # Simply note that there was a photo without analyzing it
+                content = "[Image was shared]" + (message.caption or "")
             
             conversation[str(message.id)] = {
                 "type": message_type,
@@ -89,6 +98,55 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 break
     return conversation
 
+async def analyze_image(photo):
+    try:
+        # Get the photo file_id (Pyrogram stores photos as a MediaGroup)
+        if hasattr(photo, 'file_id'):  # Single photo object
+            file_id = photo.file_id
+        else:  # MediaGroup or list of PhotoSize objects
+            # Get the largest photo size (last item in the list)
+            if isinstance(photo, list) and len(photo) > 0:
+                file_id = photo[-1].file_id
+            else:
+                logger.error(f"Unexpected photo format: {type(photo)}")
+                return "Unable to analyze image: invalid format"
+        
+        # Download the photo
+        file_path = await app.download_media(file_id, file_name="temp.jpg")
+        
+        # Encode the image to base64
+        with open(file_path, "rb") as image_file:
+            image_base64 = base64.b64encode(image_file.read()).decode('utf-8')
+        
+        # Define the messages for the image analysis
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Analyze this image and provide a detailed description."},
+                    {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_base64}"}
+                ]
+            }
+        ]
+        
+        # Get the chat response
+        chat_response = client.chat.complete(
+            model=config.get('mistral_vision_model', 'pixtral-12b-2409'),
+            messages=messages
+        )
+        
+        image_description = chat_response.choices[0].message.content
+        logger.info(f"Image description: {image_description[:100]}...")
+        
+        # Clean up the temporary file
+        import os
+        os.remove(file_path)
+        
+        return image_description
+    except Exception as e:
+        logger.error(f"Error analyzing image: {e}")
+        return "Unable to analyze image"
+
 def extract_gif_info(animation):
     if animation.file_name:
         return animation.file_name.split('.')[0]
@@ -101,23 +159,47 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     await asyncio.sleep(0.5)
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     
+    content = ""
+    
     if isinstance(message, str):
         content = message
     elif message.text:
         content = message.text
+    elif message.caption:
+        content = message.caption
     elif message.sticker:
         content = message.sticker.emoji if message.sticker.emoji else "🔸"
     elif message.animation:
         gif_info = extract_gif_info(message.animation)
         content = gif_info
     else:
-        content = "Unsupported message type"
+        content = ""
+    
+    # Only analyze image if it's in the current message being processed
+    if hasattr(message, 'photo') and message.photo:
+        try:
+            image_description = await analyze_image(message.photo)
+            if content:
+                content = f"[Image: {image_description}] {content}"
+            else:
+                content = f"[Image: {image_description}]"
+        except Exception as e:
+            logger.error(f"Error processing image in response: {e}")
+            content = "[Image: Unable to analyze]" + (content if content else "")
     
     user_tag = f"@{message.from_user.username}" if message.from_user and message.from_user.username else ""
     
     # Add the latest message to the history
+    message_type = "text"
+    if message.photo:
+        message_type = "photo"
+    elif message.sticker:
+        message_type = "sticker"
+    elif message.animation:
+        message_type = "gif"
+    
     chat_history[str(message.id)] = {
-        "type": "text" if message.text else "sticker" if message.sticker else "gif" if message.animation else "unknown",
+        "type": message_type,
         "name": name.strip(),
         "tag": user_tag,
         "content": content,
@@ -203,12 +285,13 @@ async def simulate_online_status():
         await asyncio.sleep(10)
 
 def is_mentioned(message):
-    if not message.text:
+    if not message.text and not message.caption:
         return False
-        
+    
+    text_to_check = message.text or message.caption    
     bot_names = config['bot_names']
     name_match_threshold = config['name_match_threshold']
-    text = re.sub(r'[^\w\s]', '', message.text).lower().split()
+    text = re.sub(r'[^\w\s]', '', text_to_check).lower().split()
     for word in text:
         for name in bot_names:
             if SequenceMatcher(None, name, word).ratio() > name_match_threshold:
@@ -336,7 +419,14 @@ async def process_queue():
                     if chat_id in message_groups:
                         last_client, last_message = message_groups[chat_id]['messages'][-1]
                         
-                        content_type = "text" if last_message.text else "sticker" if last_message.sticker else "GIF" if last_message.animation else "unknown"
+                        content_type = "text"
+                        if last_message.photo:
+                            content_type = "photo"
+                        elif last_message.sticker:
+                            content_type = "sticker"
+                        elif last_message.animation:
+                            content_type = "GIF"
+                        
                         content = last_message.text or last_message.caption or (last_message.sticker.emoji if last_message.sticker else (extract_gif_info(last_message.animation) if last_message.animation else "unknown"))
                         chat_title = last_message.chat.title or "Unknown Chat"
                         user_first_name = last_message.from_user.first_name if last_message.from_user and last_message.from_user.first_name else "Unknown"
@@ -393,7 +483,7 @@ async def process_queue():
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
             else: 
-                logger.info(f"Сообщение проигнорировано: {message.text or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
+                logger.info(f"Сообщение проигнорировано: {message.text or message.caption or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         finally:
