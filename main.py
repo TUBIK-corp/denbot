@@ -85,12 +85,18 @@ async def get_chat_history(chat_id, limit, current_message_id):
                 # Simply note that there was a photo without analyzing it
                 content = "[Image was shared]" + (message.caption or "")
             
+            # Add reply_to information
+            target = None
+            if message.reply_to_message_id:
+                target = str(message.reply_to_message_id)
+            
             conversation[str(message.id)] = {
                 "type": message_type,
                 "name": name.strip(),
                 "tag": user_tag,
                 "content": content,
-                "role": "assistant" if is_bot_message else "user"
+                "role": "assistant" if is_bot_message else "user",
+                "target": target
             }
             
             message_counter += 1
@@ -155,14 +161,19 @@ def extract_gif_info(animation):
     else:
         return "Unknown GIF"
 
-async def get_response(message, chat_id, message_id, name="unknown"):
+async def get_response(message, chat_id, message_id, name="unknown", group_messages=None):
     await asyncio.sleep(0.5)
+    # Получаем историю чата
     chat_history = await get_chat_history(chat_id, config['message_memory'], message_id)
     
     content = ""
     
     if isinstance(message, str):
         content = message
+    elif hasattr(message, '_text') and message._text:  # Используем предварительно проанализированный текст с изображением, если есть
+        content = message._text
+    elif hasattr(message, '_caption') and message._caption:  # Используем предварительно проанализированный текст с изображением, если есть
+        content = message._caption
     elif message.text:
         content = message.text
     elif message.caption:
@@ -175,8 +186,8 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     else:
         content = ""
     
-    # Only analyze image if it's in the current message being processed
-    if hasattr(message, 'photo') and message.photo:
+    # Анализируем изображение, если оно не было проанализировано ранее
+    if hasattr(message, 'photo') and message.photo and not (hasattr(message, '_text') or hasattr(message, '_caption')):
         try:
             image_description = await analyze_image(message.photo)
             if content:
@@ -198,13 +209,78 @@ async def get_response(message, chat_id, message_id, name="unknown"):
     elif message.animation:
         message_type = "gif"
     
+    # Get reply_to information
+    target = None
+    if hasattr(message, 'reply_to_message') and message.reply_to_message:
+        target = str(message.reply_to_message.id)
+    elif hasattr(message, 'reply_to_message_id') and message.reply_to_message_id:
+        target = str(message.reply_to_message_id)
+    
     chat_history[str(message.id)] = {
         "type": message_type,
         "name": name.strip(),
         "tag": user_tag,
         "content": content,
-        "role": "user"
+        "role": "user",
+        "target": target
     }
+    
+    # Если у нас есть группа сообщений, добавляем их все в историю чата
+    if group_messages:
+        for client_msg, msg in group_messages:
+            if msg.id != message.id:  # Не дублируем последнее сообщение
+                msg_content = ""
+                
+                if hasattr(msg, '_text') and msg._text:
+                    msg_content = msg._text
+                elif hasattr(msg, '_caption') and msg._caption:
+                    msg_content = msg._caption
+                elif msg.text:
+                    msg_content = msg.text
+                elif msg.caption:
+                    msg_content = msg.caption
+                elif msg.sticker:
+                    msg_content = msg.sticker.emoji if msg.sticker.emoji else "🔸"
+                elif msg.animation:
+                    msg_content = extract_gif_info(msg.animation)
+                
+                # Анализируем изображение, если оно не было проанализировано ранее
+                if hasattr(msg, 'photo') and msg.photo and not (hasattr(msg, '_text') or hasattr(msg, '_caption')):
+                    try:
+                        image_description = await analyze_image(msg.photo)
+                        if msg_content:
+                            msg_content = f"[Image: {image_description}] {msg_content}"
+                        else:
+                            msg_content = f"[Image: {image_description}]"
+                    except Exception as e:
+                        logger.error(f"Error processing group message image: {e}")
+                
+                msg_type = "text"
+                if msg.photo:
+                    msg_type = "photo"
+                elif msg.sticker:
+                    msg_type = "sticker"
+                elif msg.animation:
+                    msg_type = "gif"
+                
+                msg_user_tag = f"@{msg.from_user.username}" if msg.from_user and msg.from_user.username else ""
+                msg_name = f"{msg.from_user.first_name} {msg.from_user.last_name or ''}".strip() if msg.from_user else "Unknown"
+                
+                # Get reply_to information for this message
+                msg_target = None
+                if hasattr(msg, 'reply_to_message') and msg.reply_to_message:
+                    msg_target = str(msg.reply_to_message.id)
+                elif hasattr(msg, 'reply_to_message_id') and msg.reply_to_message_id:
+                    msg_target = str(msg.reply_to_message_id)
+                
+                chat_history[str(msg.id)] = {
+                    "type": msg_type,
+                    "name": msg_name,
+                    "tag": msg_user_tag,
+                    "content": msg_content,
+                    "role": "user",
+                    "target": msg_target
+                }
     
     try:
         formatted_history = format_chat_history_for_mistral(chat_history)
@@ -260,7 +336,8 @@ def format_chat_history_for_mistral(chat_history):
             "name": msg_data["name"],
             "tag": msg_data["tag"],
             "content": msg_data["content"],
-            "role": msg_data.get("role", "user")  # Default to user if role not specified
+            "role": msg_data.get("role", "user"),  # Default to user if role not specified
+            "target": msg_data.get("target", None)  # Include reply_to information
         }
     
     return formatted_history
@@ -289,14 +366,35 @@ def is_mentioned(message):
         return False
     
     text_to_check = message.text or message.caption    
-    bot_names = config['bot_names']
+    bot_names = [name.lower() for name in config['bot_names']]
     name_match_threshold = config['name_match_threshold']
-    text = re.sub(r'[^\w\s]', '', text_to_check).lower().split()
-    for word in text:
+    
+    # First check for exact matches (including @ mentions)
+    text_lower = text_to_check.lower()
+    for name in bot_names:
+        if name.lower() in text_lower:
+            logger.info(f"Имя бота найдено точным совпадением: {name} | Чат: {message.chat.title if hasattr(message.chat, 'title') else 'Private'} | Пользователь: {message.from_user.first_name if message.from_user else 'Unknown'}")
+            return True
+    
+    # Then check for fuzzy matches
+    text_words = re.sub(r'[^\w\s]', '', text_to_check).lower().split()
+    for word in text_words:
         for name in bot_names:
-            if SequenceMatcher(None, name, word).ratio() > name_match_threshold:
-                logger.info(f"Имя бота найдено по проценту сходства: {name} | Процент сходства: {SequenceMatcher(None, name, word).ratio() * 100:.2f}% | Чат: {message.chat.title} | Пользователь: {message.from_user.first_name}")
+            # For @ mentions, strip the @ for comparison
+            name_stripped = name[1:] if name.startswith('@') else name
+            similarity = SequenceMatcher(None, name_stripped, word).ratio()
+            if similarity > name_match_threshold:
+                logger.info(f"Имя бота найдено по проценту сходства: {name} | Процент сходства: {similarity * 100:.2f}% | Чат: {message.chat.title if hasattr(message.chat, 'title') else 'Private'} | Пользователь: {message.from_user.first_name if message.from_user else 'Unknown'}")
                 return True
+    
+    return False
+
+# Function to check if message is a reply to the bot
+def is_reply_to_bot(message):
+    if hasattr(message, 'reply_to_message') and message.reply_to_message:
+        if message.reply_to_message.from_user and message.reply_to_message.from_user.is_self:
+            logger.info(f"Обнаружен реплай на сообщение бота | Чат: {message.chat.title if message.chat else 'Unknown'} | Пользователь: {message.from_user.first_name if message.from_user else 'Unknown'}")
+            return True
     return False
 
 async def get_all_stickers(client):
@@ -381,7 +479,7 @@ async def process_queue():
             current_time = time.time()
             
             is_direct_interaction = (
-                (message.reply_to_message and message.reply_to_message.from_user and message.reply_to_message.from_user.is_self) or 
+                is_reply_to_bot(message) or 
                 message.chat.type == ChatType.PRIVATE or 
                 is_mentioned(message)
             )
@@ -417,7 +515,8 @@ async def process_queue():
                     await asyncio.sleep(10)  # Ждём 10 секунд для группировки
                     
                     if chat_id in message_groups:
-                        last_client, last_message = message_groups[chat_id]['messages'][-1]
+                        group_messages = message_groups[chat_id]['messages']
+                        last_client, last_message = group_messages[-1]
                         
                         content_type = "text"
                         if last_message.photo:
@@ -433,13 +532,48 @@ async def process_queue():
                         user_last_name = last_message.from_user.last_name if last_message.from_user and last_message.from_user.last_name else ""
                         user_username = message.from_user.username if message.from_user and message.from_user.username else "Unknown"
                         
-                        logger.info(f"Обработка группы сообщений. Последнее сообщение: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}")
+                        # Log reply information if available
+                        reply_info = ""
+                        if hasattr(last_message, 'reply_to_message') and last_message.reply_to_message:
+                            reply_user = last_message.reply_to_message.from_user
+                            reply_name = f"{reply_user.first_name} {reply_user.last_name or ''}".strip() if reply_user else "Unknown"
+                            is_bot_reply = reply_user and reply_user.is_self
+                            reply_info = f" | Reply to: {reply_name} ({'bot' if is_bot_reply else 'user'})"
+                        
+                        logger.info(f"Обработка группы сообщений ({len(group_messages)} сообщений). Последнее сообщение: {content_type}: {content} | Чат: {chat_title} | Пользователь: {user_username}{reply_info}")
+                        
+                        # Create a message_id to index mapping for quick lookups
+                        message_id_map = {str(msg[1].id): idx for idx, msg in enumerate(group_messages)}
+                        
+                        # Build a reply chain map for context
+                        reply_chain_map = {}
+                        for _, msg in group_messages:
+                            if hasattr(msg, 'reply_to_message') and msg.reply_to_message:
+                                reply_chain_map[str(msg.id)] = str(msg.reply_to_message.id)
+                            elif hasattr(msg, 'reply_to_message_id') and msg.reply_to_message_id:
+                                reply_chain_map[str(msg.id)] = str(msg.reply_to_message_id)
+                        
+                        # Analyze all images in the message group
+                        for _, group_message in group_messages:
+                            if hasattr(group_message, 'photo') and group_message.photo:
+                                try:
+                                    image_description = await analyze_image(group_message.photo)
+                                    msg_content = group_message.text or group_message.caption or ""
+                                    if msg_content:
+                                        group_message._text = f"[Image: {image_description}] {msg_content}"
+                                        group_message._caption = f"[Image: {image_description}] {msg_content}"
+                                    else:
+                                        group_message._text = f"[Image: {image_description}]"
+                                        group_message._caption = f"[Image: {image_description}]"
+                                except Exception as e:
+                                    logger.error(f"Error processing image in group: {e}")
                         
                         response_data = await get_response(
                             message=last_message,
                             chat_id=chat_id,
                             message_id=last_message.id,
-                            name=f"{user_first_name} {user_last_name}".strip()
+                            name=f"{user_first_name} {user_last_name}".strip(),
+                            group_messages=group_messages
                         )
                         
                         logger.info(f"Response data: {response_data}")
@@ -451,27 +585,22 @@ async def process_queue():
                                     msg_content = msg_data.get("content", "")
                                     msg_target = msg_data.get("target")
                                     
-                                    target_message = None
-                                    if msg_target:
-                                        try:
-                                            # Try to find the target message to reply to
-                                            for client_msg, orig_msg in message_groups[chat_id]['messages']:
-                                                if str(orig_msg.id) == str(msg_target):
-                                                    target_message = orig_msg
-                                                    break
-                                        except Exception as e:
-                                            logger.error(f"Error finding target message: {e}")
+                                    # Default to replying to the last message
+                                    target_client, target_message = last_client, last_message
                                     
-                                    if not target_message:
-                                        target_message = last_message
+                                    # If a target is specified and exists in our current message group, use that instead
+                                    if msg_target and msg_target in message_id_map:
+                                        target_idx = message_id_map[msg_target]
+                                        target_client, target_message = group_messages[target_idx]
+                                        logger.info(f"Targeting specific message id {msg_target} in current group")
                                     
                                     if msg_type == "text" and msg_content:
-                                        await simulate_typing(last_client, chat_id, msg_content)
+                                        await simulate_typing(target_client, chat_id, msg_content)
                                         await target_message.reply(msg_content)
                                     elif msg_type == "gif" and msg_content:
-                                        await send_gif(last_client, chat_id, msg_content)
+                                        await send_gif(target_client, chat_id, msg_content)
                                     elif msg_type == "sticker" and msg_content:
-                                        await send_random_sticker(last_client, chat_id, msg_content)
+                                        await send_random_sticker(target_client, chat_id, msg_content)
                             else:
                                 logger.error("Invalid response format from Mistral")
                         except Exception as e:
@@ -483,7 +612,15 @@ async def process_queue():
                 timer = asyncio.create_task(process_message_group(chat_id))
                 message_groups[chat_id]['timer'] = timer
             else: 
-                logger.info(f"Сообщение проигнорировано: {message.text or message.caption or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}")
+                # Log reply information even for ignored messages
+                reply_info = ""
+                if hasattr(message, 'reply_to_message') and message.reply_to_message:
+                    reply_user = message.reply_to_message.from_user
+                    reply_name = f"{reply_user.first_name} {reply_user.last_name or ''}".strip() if reply_user else "Unknown"
+                    is_bot_reply = reply_user and reply_user.is_self
+                    reply_info = f" | Reply to: {reply_name} ({'bot' if is_bot_reply else 'user'})"
+                
+                logger.info(f"Сообщение проигнорировано: {message.text or message.caption or 'Не текстовое сообщение'} | Чат: {(message.chat.title if message.chat else 'Unknown Chat')} | Пользователь: {(message.from_user.username if message.from_user else 'Unknown')}{reply_info}")
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
         finally:
