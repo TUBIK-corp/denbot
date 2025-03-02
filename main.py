@@ -592,20 +592,23 @@ async def process_queue():
                                 for idx, msg_data in response_data["messages"].items():
                                     msg_type = msg_data.get("type", "text")
                                     msg_content = msg_data.get("content", "")
-                                    msg_target = msg_data.get("target")
+                                    msg_target = msg_data.get("target", None)
                                     
                                     # Default to replying to the last message
                                     target_client, target_message = last_client, last_message
                                     
                                     # If a target is specified and exists in our current message group, use that instead
-                                    if msg_target and msg_target in message_id_map:
+                                    if str(msg_target).isdigit() and msg_target in message_id_map:
                                         target_idx = message_id_map[msg_target]
                                         target_client, target_message = group_messages[target_idx]
+                                        msg_target = int(msg_target)
                                         logger.info(f"Targeting specific message id {msg_target} in current group")
+                                    else:
+                                        msg_target = None
                                     
                                     if msg_type == "text" and msg_content:
                                         await simulate_typing(target_client, chat_id, msg_content)
-                                        await target_client.send_message(chat_id=chat_id, text=msg_content, reply_to_message_id=int(msg_target) if str(msg_target).isdigit() else None)
+                                        await target_client.send_message(chat_id=chat_id, text=msg_content, reply_to_message_id=msg_target)
                                     elif msg_type == "gif" and msg_content:
                                         await send_gif(target_client, chat_id, msg_content)
                                     elif msg_type == "sticker" and msg_content:
