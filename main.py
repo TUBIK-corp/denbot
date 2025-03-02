@@ -170,9 +170,9 @@ async def get_response(message, chat_id, message_id, name="unknown", group_messa
     
     if isinstance(message, str):
         content = message
-    elif hasattr(message, '_text') and message._text:  # Используем предварительно проанализированный текст с изображением, если есть
+    elif hasattr(message, '_text') and message._text:
         content = message._text
-    elif hasattr(message, '_caption') and message._caption:  # Используем предварительно проанализированный текст с изображением, если есть
+    elif hasattr(message, '_caption') and message._caption:
         content = message._caption
     elif message.text:
         content = message.text
@@ -283,11 +283,11 @@ async def get_response(message, chat_id, message_id, name="unknown", group_messa
                 }
     
     try:
-        formatted_history = format_chat_history_for_mistral(chat_history)
-        
+        formatted_messages = format_chat_history_for_mistral(chat_history)
+
         chat_response = client.agents.complete(
             agent_id=config['mistral_agent_id'], 
-            messages=[{"role": "user", "content": json.dumps(formatted_history)}],
+            messages=formatted_messages,
             response_format = {
                 "type": "json_object",
             }
@@ -328,19 +328,28 @@ async def get_response(message, chat_id, message_id, name="unknown", group_messa
 
 def format_chat_history_for_mistral(chat_history):
     # Sort messages by ID (chronological order)
-    sorted_messages = sorted(chat_history.items(), key=lambda x: int(x[0]))
-    formatted_history = {}
+    sorted_messages = sorted(chat_history.items(), key=lambda x: int(x[0]), reverse=False)
+    formatted_messages = []
     
-    for msg_id, msg_data in sorted_messages:
-        formatted_history[msg_id] = {
+    logger.info("Messages order after sorting:")
+    for idx, (msg_id, msg_data) in enumerate(sorted_messages):
+        logger.info(f"{idx+1}. ID: {msg_id}, Target: {msg_data.get("target", "None")}, Content: {msg_data['content'][:30]}...")
+        role = "user" if msg_data.get("role", "user") == "user" else "assistant"
+
+        content = {
+            "id": f'{msg_id}',
             "name": msg_data["name"],
             "tag": msg_data["tag"],
             "content": msg_data["content"],
-            "role": msg_data.get("role", "user"),  # Default to user if role not specified
-            "target": msg_data.get("target", None)  # Include reply_to information
+            "target": msg_data.get("target", None)
         }
+
+        formatted_messages.append({
+            "role": role,
+            "content": f'"{msg_id}": {content}'
+        })
     
-    return formatted_history
+    return formatted_messages
 
 async def simulate_typing(client, chat_id, text):
     typing_speed = config['typing_speed'] 
@@ -596,7 +605,7 @@ async def process_queue():
                                     
                                     if msg_type == "text" and msg_content:
                                         await simulate_typing(target_client, chat_id, msg_content)
-                                        await target_message.reply(msg_content)
+                                        await target_client.send_message(chat_id=chat_id, text=msg_content, reply_to_message_id=int(msg_target) if str(msg_target).isdigit() else None)
                                     elif msg_type == "gif" and msg_content:
                                         await send_gif(target_client, chat_id, msg_content)
                                     elif msg_type == "sticker" and msg_content:
