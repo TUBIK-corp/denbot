@@ -333,7 +333,7 @@ def format_chat_history_for_mistral(chat_history):
     
     logger.info("Messages order after sorting:")
     for idx, (msg_id, msg_data) in enumerate(sorted_messages):
-        logger.info(f"{idx+1}. ID: {msg_id}, Target: {msg_data.get("target", "None")}, Content: {msg_data['content'][:30]}...")
+        logger.info(f"{idx+1}. ID: {msg_id}, Target: {msg_data.get('target', 'None')}, Content: {msg_data['content'][:30]}...")
         role = "user" if msg_data.get("role", "user") == "user" else "assistant"
 
         content = {
