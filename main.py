@@ -341,7 +341,7 @@ def format_chat_history_for_mistral(chat_history):
             "name": msg_data["name"],
             "tag": msg_data["tag"],
             "content": msg_data["content"],
-            "target": msg_data.get("target", None)
+            "target": msg_data.get("target", "None")
         }
 
         formatted_messages.append({
@@ -617,7 +617,6 @@ async def process_queue():
                                 logger.error("Invalid response format from Mistral")
                         except Exception as e:
                             logger.error(f"Error processing response: {e}")
-                            await last_message.reply("Произошла ошибка при обработке ответа.")
                         
                         del message_groups[chat_id]
                 
